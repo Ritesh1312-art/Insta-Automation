@@ -1,0 +1,176 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  passwordHash    String
+  name            String?
+  role            String           @default("USER")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  metaConnections MetaConnection[]
+  automations     Automation[]
+  resources       Resource[]
+  auditLogs       AuditLog[]
+}
+
+model MetaConnection {
+  id                   String         @id @default(uuid())
+  userId               String
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metaUserId           String
+  instagramAccountId   String         @unique
+  facebookPageId       String?
+  instagramUsername    String
+  profilePictureUrl    String?
+  accessTokenEncrypted String
+  tokenType            String         @default("BEARER")
+  scopes               String[]
+  expiresAt            DateTime?
+  connectionStatus     String         @default("CONNECTED") // CONNECTED, TOKEN_EXPIRING, TOKEN_EXPIRED, DISCONNECTED, ERROR
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  media                Media[]
+  automations          Automation[]
+  contacts             Contact[]
+  webhookEvents        WebhookEvent[]
+}
+
+model Media {
+  id                 String         @id @default(uuid())
+  instagramAccountId String
+  metaConnection     MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
+  instagramMediaId   String         @unique
+  mediaType          String // REEL, IMAGE, CAROUSEL_ALBUM, VIDEO
+  caption            String?
+  permalink          String?
+  mediaUrl           String?
+  thumbnailUrl       String?
+  timestamp          DateTime
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  automations        Automation[]
+}
+
+model Resource {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  type        String // URL, TEXT, PDF_LINK, FILE
+  url         String?
+  textContent String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  automations Automation[]
+}
+
+model Automation {
+  id                    String         @id @default(uuid())
+  userId                String
+  user                  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instagramAccountId    String
+  metaConnection        MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
+  mediaId               String?
+  media                 Media?         @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  resourceId            String?
+  resource              Resource?      @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  name                  String
+  status                String         @default("DRAFT") // DRAFT, ACTIVE, PAUSED, ERROR, ARCHIVED
+  triggerType           String         @default("KEYWORD") // ANY_COMMENT, KEYWORD
+  matchingMode          String         @default("EXACT") // EXACT, CONTAINS, STARTS_WITH
+  keywords              String[] // ["HANUMAN", "PROMPT", "LINK"]
+  ignoreOwnerComments   Boolean        @default(true)
+  oneDeliveryPerUser    Boolean        @default(true)
+  oneDeliveryPerComment Boolean        @default(true)
+  dmMessageTemplate     String
+  publicReplyEnabled    Boolean        @default(false)
+  publicReplyTemplates  String[]
+  totalTriggers         Int            @default(0)
+  totalSuccess          Int            @default(0)
+  totalFailed           Int            @default(0)
+  lastTriggeredAt       DateTime?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  runs                  AutomationRun[]
+
+  @@index([instagramAccountId, mediaId, status])
+}
+
+model WebhookEvent {
+  id                 String          @id @default(uuid())
+  instagramAccountId String?
+  metaConnection     MetaConnection? @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: SetNull)
+  eventId            String?         @unique
+  eventType          String // comments, messaging
+  commentId          String?
+  mediaId            String?
+  commenterId        String?
+  commenterUsername  String?
+  commentText        String?
+  rawPayload         Json
+  status             String          @default("RECEIVED") // RECEIVED, PROCESSING, PROCESSED, FAILED, IGNORED, RETRYING
+  errorDetails       String?
+  processedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  runs               AutomationRun[]
+
+  @@index([status, createdAt])
+  @@index([commentId])
+}
+
+model AutomationRun {
+  id                String       @id @default(uuid())
+  automationId      String
+  automation        Automation   @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  webhookEventId    String
+  webhookEvent      WebhookEvent @relation(fields: [webhookEventId], references: [id], onDelete: Cascade)
+  idempotencyKey    String       @unique
+  status            String       @default("QUEUED") // QUEUED, PROCESSING, API_ACCEPTED, FAILED, RETRYING, CANCELLED
+  publicReplyStatus String? // SENT, FAILED, SKIPPED
+  dmStatus          String? // SENT, FAILED, SKIPPED
+  dmResponseId      String?
+  publicReplyId     String?
+  errorCategory     String? // TRANSIENT, PERMANENT, AUTHENTICATION, PERMISSION, RATE_LIMIT, VALIDATION
+  errorMessage      String?
+  retryCount        Int          @default(0)
+  nextRetryAt       DateTime?
+  executedAt        DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([automationId])
+  @@index([idempotencyKey])
+}
+
+model Contact {
+  id                 String         @id @default(uuid())
+  instagramAccountId String
+  metaConnection     MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
+  igsid              String
+  username           String?
+  firstInteraction   DateTime       @default(now())
+  lastInteraction    DateTime       @default(now())
+  totalInteractions  Int            @default(1)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@unique([instagramAccountId, igsid])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}

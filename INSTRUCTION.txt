@@ -1,0 +1,133 @@
+===============================================================================
+ INSTADM AUTO — PURI INSTRUCTION GUIDE (STARTING SE END TAK IN HINDI)
+===============================================================================
+
+Yeh guide aapko batayegi ki aapko apne end se Step-by-Step kya karna hai, local test se lekar GitHub push, 24/7 Vercel cloud deployment, aur har ek Key/Secret kaha se milegi.
+
+-------------------------------------------------------------------------------
+📌 KAUN SI CHEEZ KAHA SE MILEGI? (KEYS & CREDENTIALS GUIDE)
+-------------------------------------------------------------------------------
+
+1. DATABASE_URL:
+   - Kaha se milegi: Supabase (supabase.com) ya Neon (neon.tech)
+   - Kaise milegi: Free account banayein -> "Create Project" -> Database Settings -> Connection String (URI) copy karein.
+   - Format: postgresql://postgres:password@db.supabase.co:5432/postgres
+
+2. META_APP_ID aur META_APP_SECRET:
+   - Kaha se milegi: Meta Developer Portal (developers.facebook.com)
+   - Kaise milegi: Log in -> My Apps -> Apne App par click karein -> App Settings -> Basic.
+   - Top par App ID aur App Secret (Show button daban) dikh jayega.
+
+3. META_VERIFY_TOKEN:
+   - Kaha se milegi: Yeh aapki apni marzi ki koi bhi secret text/password ho sakti hai.
+   - Example: `my_custom_webhook_verify_token_123`
+   - Note: Jo string `.env` me rakhenge, wahi Meta Webhook setup karte waqt "Verify Token" box me type karni padegi.
+
+4. AUTH_SECRET aur ENCRYPTION_KEY:
+   - Kaha se milegi: Yeh aapki marzi ki koi bhi secure random 32-character string ho sakti hai (Pre-filled default string pehle se `.env.example` me added hai).
+
+5. META_REDIRECT_URI:
+   - Kaha se milegi: Vercel par deploy hone ke baad jo aapko live domain URL milega, uske aage `/api/auth/meta/callback` lagayein.
+   - Example: `https://your-app-name.vercel.app/api/auth/meta/callback`
+
+6. META_API_MOCK:
+   - "true" = Local offline test karne ke liye (Bina real Meta tokens ke).
+   - "false" = Live production me real Instagram DMs bhejne ke liye.
+
+
+-------------------------------------------------------------------------------
+STEP 1: LOCAL COMPUTER PAR TEST CHALANA (OFFLINE MOCK MODE)
+-------------------------------------------------------------------------------
+
+Aapka project pehle se hi MOCK MODE me configured hai. Aap bina kisi Meta App ID ya Token ke isko apne computer par run aur test kar sakte hain.
+
+1. Command Prompt (cmd) open karein aur project folder me jayein:
+   cd C:\Users\Ritesh\.gemini\antigravity\scratch\instagram-comment-dm-automation
+
+2. Server start karein:
+   npm run dev
+
+3. Apne browser (Chrome/Edge) me yeh URL kholein:
+   http://localhost:3000/dashboard
+
+4. Dashboard par aapko:
+   - "Connect Instagram Account" dikhega. Iss par click karein (mock mode se account `@ritesh_tech_creator` connect ho jayega aur sample Reels load ho jayengi).
+   - "Test Comment Simulator" button par click karein.
+   - Reel A select karein, comment text me "HANUMAN" likhein, aur "Simulate Instagram Webhook Event" dabayein.
+   - Aap dekhenge ki system instant comment detect karega, duplicate check pass karega, aur Hanuman Chalisa PDF ka DM reply create kar dega!
+
+
+-------------------------------------------------------------------------------
+STEP 2: REAL DATABASE SETUP (SUPABASE / NEON FREE TIER)
+-------------------------------------------------------------------------------
+
+Agar aapko 24/7 cloud par real database use karna hai ($0/month):
+
+1. Supabase (supabase.com) ya Neon (neon.tech) par free account banayein.
+2. Naya PostgreSQL Database create karein aur uska Connection String (URL) copy karein.
+3. Project ke `.env` file me `DATABASE_URL` update karein:
+   DATABASE_URL="postgresql://postgres:password@db.supabase.co:5432/postgres"
+
+4. Terminal me database migration command chalayein:
+   cmd /c npx prisma db push
+
+
+-------------------------------------------------------------------------------
+STEP 3: GITHUB PAR CODE UPLOAD KARNA (STEP-BY-STEP)
+-------------------------------------------------------------------------------
+
+Aap abhi code ko GitHub par upload kar sakte hain, configuration baad me kar sakte hain:
+
+1. https://github.com par jayein aur account log in karein.
+2. Top right me "+" icon par click karke "New repository" choose karein.
+3. Repository name rakhein: `instagram-comment-dm-automation` aur "Create repository" dabayein.
+
+4. Apne computer ke Command Prompt (cmd) me project folder par yeh commands ek-ek karke chalayein:
+   
+   git init
+   git add .
+   git commit -m "Initial commit"
+   git branch -M main
+   git remote add origin https://github.com/AAPKA_GITHUB_USERNAME/instagram-comment-dm-automation.git
+   git push -u origin main
+
+5. Aapka code 100% complete aur safe tariqe se GitHub par upload ho jayega.
+
+
+-------------------------------------------------------------------------------
+STEP 4: VERCEL PAR 24/7 FREE CLOUD DEPLOYMENT (STEP-BY-STEP)
+-------------------------------------------------------------------------------
+
+1. https://vercel.com par jayein aur "Continue with GitHub" par click karke login karein.
+2. Dashboard par "Add New..." -> "Project" click karein.
+3. GitHub Repository list se `instagram-comment-dm-automation` select karke "Import" dabayein.
+4. "Environment Variables" section me sabhi values daalein (Upar di gayi guide ke mutabiq).
+5. "Deploy" button par click karein.
+6. Vercel aapko ek Live Production URL de dega (Jaise: `https://your-app-name.vercel.app`).
+
+
+-------------------------------------------------------------------------------
+STEP 5: REAL META DEVELOPER APP & WEBHOOK SET UP
+-------------------------------------------------------------------------------
+
+1. https://developers.facebook.com par jayein -> "Create App" -> "Business" App.
+2. Products: Add "Instagram Graph API" & "Webhooks".
+3. Webhooks Section me:
+   - Object: `instagram`
+   - Callback URL: `https://your-app-name.vercel.app/api/webhooks/meta`
+   - Verify Token: `my_custom_webhook_verify_token_123`
+   - Subscribe Field: `comments`
+
+
+-------------------------------------------------------------------------------
+STEP 6: REAL INSTAGRAM REEL AUTOMATION SETUP
+-------------------------------------------------------------------------------
+
+1. Vercel ke live domain (`https://your-app-name.vercel.app/dashboard`) ko kholein.
+2. "Connect Instagram Account" par click karke real Meta OAuth se Instagram account link karein.
+3. Automations tab me naya rule banayein:
+   - Reel select karein -> Keyword write (e.g. `HANUMAN`) -> DM Message Write -> Save & Activate.
+
+===============================================================================
+               SYSTEM IS 100% READY TO UPLOAD & DEPLOY!
+===============================================================================
