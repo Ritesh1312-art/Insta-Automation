@@ -194,6 +194,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${process.env.APP_URL || 'http://localhost:3000'}/dashboard?connected=true`);
   } catch (error: any) {
     console.error('Error handling Meta OAuth Callback:', error);
+    try {
+      const user = await prisma.user.findFirst();
+      await prisma.auditLog.create({
+        data: {
+          userId: user?.id,
+          action: 'META_AUTH_CALLBACK_ERROR',
+          details: {
+            errorMessage: error?.message || String(error),
+            stack: error?.stack,
+          },
+        },
+      });
+    } catch (logDbError) {
+      console.error('Failed to log auth error to DB:', logDbError);
+    }
     return NextResponse.redirect(
       `${process.env.APP_URL || 'http://localhost:3000'}/dashboard?error=${encodeURIComponent(error.message)}`
     );
