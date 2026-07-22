@@ -9,7 +9,7 @@ export class MetaAuthService {
 
   public static getOAuthUrl(state: string, redirectUri: string): string {
     const { graphApiVersion, appId } = this.config;
-    const scopes = ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata'].join(',');
+    const scopes = ['instagram_basic', 'instagram_manage_comments', 'pages_show_list', 'pages_read_engagement'].join(',');
     return `https://www.facebook.com/${graphApiVersion}/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${encodeURIComponent(state)}`;
   }
 
