@@ -31,8 +31,14 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const code = searchParams.get('code') || 'mock_code';
 
+    // Dynamically compute the redirect URI based on the request's hostname
+    const host = req.headers.get('host') || 'localhost:3000';
+    const protocol = req.headers.get('x-forwarded-proto') || 'http';
+    const origin = `${protocol}://${host}`;
+    const dynamicRedirectUri = `${origin}/api/auth/meta/callback`;
+
     // 1. Exchange code for Meta token & account details
-    const connectedAccount = await MetaAuthService.handleOAuthCallback(code);
+    const connectedAccount = await MetaAuthService.handleOAuthCallback(code, dynamicRedirectUri);
 
     const encryptedToken = encryptToken(connectedAccount.accessToken);
     const expiresAt = connectedAccount.expiresInSeconds

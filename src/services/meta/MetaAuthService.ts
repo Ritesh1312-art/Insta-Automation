@@ -15,7 +15,7 @@ export class MetaAuthService {
   private static appSecret = process.env.META_APP_SECRET || '';
   private static redirectUri = process.env.META_REDIRECT_URI || 'http://localhost:3000/api/auth/meta/callback';
 
-  public static getOAuthUrl(state: string): string {
+  public static getOAuthUrl(state: string, customRedirectUri?: string): string {
     const scopes = [
       'instagram_basic',
       'instagram_manage_comments',
@@ -23,12 +23,14 @@ export class MetaAuthService {
       'pages_read_engagement',
     ].join(',');
 
+    const redirect = customRedirectUri || this.redirectUri;
+
     return `https://www.facebook.com/${this.graphApiVersion}/dialog/oauth?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
-      this.redirectUri
+      redirect
     )}&scope=${scopes}&response_type=code&state=${state}`;
   }
 
-  public static async handleOAuthCallback(code: string): Promise<ConnectedInstagramAccount> {
+  public static async handleOAuthCallback(code: string, customRedirectUri?: string): Promise<ConnectedInstagramAccount> {
     if (process.env.META_API_MOCK === 'true') {
       console.log('🤖 [META MOCK MODE] Simulating Meta OAuth Callback Exchange');
       return {
@@ -41,9 +43,11 @@ export class MetaAuthService {
       };
     }
 
+    const redirect = customRedirectUri || this.redirectUri;
+
     // 1. Exchange auth code for short-lived user access token
     const tokenUrl = `https://graph.facebook.com/${this.graphApiVersion}/oauth/access_token?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
-      this.redirectUri
+      redirect
     )}&client_secret=${this.appSecret}&code=${code}`;
 
     const tokenRes = await fetch(tokenUrl);
