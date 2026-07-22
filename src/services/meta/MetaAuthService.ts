@@ -76,7 +76,8 @@ export class MetaAuthService {
     const pagesData = await pagesRes.json();
 
     if (!pagesRes.ok || !pagesData.data || pagesData.data.length === 0) {
-      throw new Error('No Facebook Pages found or permission missing to read Page details.');
+      const dbgMsg = `pagesRes Status: ${pagesRes.status}. Data: ${JSON.stringify(pagesData)}`;
+      throw new Error(`No Facebook Pages found. Debug Info: ${dbgMsg}`);
     }
 
     const pageWithIg = pagesData.data.find((p: any) => p.instagram_business_account?.id);
