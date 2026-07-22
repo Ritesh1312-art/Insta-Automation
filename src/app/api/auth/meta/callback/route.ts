@@ -29,7 +29,14 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const code = searchParams.get('code') || 'mock_code';
+    const code = searchParams.get('code');
+    const fbError = searchParams.get('error');
+
+    // If Facebook returned an error or no code, redirect with clear message
+    if (!code || fbError) {
+      const errMsg = fbError || 'No authorization code received from Facebook';
+      return NextResponse.redirect(new URL(`/dashboard?error=${encodeURIComponent(errMsg)}`, req.url));
+    }
 
     // Dynamically compute the redirect URI based on the request's hostname
     const host = req.headers.get('host') || 'localhost:3000';

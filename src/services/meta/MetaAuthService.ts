@@ -103,7 +103,7 @@ export class MetaAuthService {
       };
     }
 
-    // 5. Strategy C: Try /me/accounts with different fields  
+    // 5. Strategy C: Try /me/instagram_accounts
     const igUserUrl = `https://graph.facebook.com/${this.graphApiVersion}/me/instagram_accounts?fields=id,username,profile_picture_url&access_token=${longLivedToken}`;
     const igUserRes = await fetch(igUserUrl);
     const igUserData = await igUserRes.json();
@@ -120,12 +120,22 @@ export class MetaAuthService {
       };
     }
 
-    // All strategies failed - throw detailed error
+    // 6. Strategy D: Identify which Facebook user logged in (critical debug)
+    const meUrl = `https://graph.facebook.com/${this.graphApiVersion}/me?fields=id,name,email&access_token=${longLivedToken}`;
+    const meRes = await fetch(meUrl);
+    const meData = await meRes.json();
+
+    // All strategies failed - throw detailed error with user identity
     const debugInfo = {
+      // WHO LOGGED IN - this tells us if wrong Facebook account was used
+      loggedInFacebookUser: meData,
+      // Pages this user manages
       pagesStatus: pagesRes.status,
       pagesData: pagesData,
+      // Direct Instagram check
       igDirectStatus: igRes.status,
       igDirectData: igData,
+      // Instagram accounts endpoint
       igUserStatus: igUserRes.status,
       igUserData: igUserData,
     };
