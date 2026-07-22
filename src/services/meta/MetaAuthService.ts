@@ -70,30 +70,69 @@ export class MetaAuthService {
     const llData = await llRes.json();
     const longLivedToken = llData.access_token || tokenData.access_token;
 
-    // 3. Fetch Facebook Pages and connected Instagram Business Accounts
+    // 3. Try Strategy A: Fetch via Facebook Pages → Instagram Business Account
     const pagesUrl = `https://graph.facebook.com/${this.graphApiVersion}/me/accounts?fields=id,name,instagram_business_account{id,username,profile_picture_url}&access_token=${longLivedToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
 
-    if (!pagesRes.ok || !pagesData.data || pagesData.data.length === 0) {
-      const dbgMsg = `pagesRes Status: ${pagesRes.status}. Data: ${JSON.stringify(pagesData)}`;
-      throw new Error(`No Facebook Pages found. Debug Info: ${dbgMsg}`);
+    if (pagesRes.ok && pagesData.data && pagesData.data.length > 0) {
+      const pageWithIg = pagesData.data.find((p: any) => p.instagram_business_account?.id);
+      if (pageWithIg) {
+        const igAccount = pageWithIg.instagram_business_account;
+        return {
+          instagramAccountId: igAccount.id,
+          instagramUsername: igAccount.username || 'instagram_account',
+          profilePictureUrl: igAccount.profile_picture_url,
+          facebookPageId: pageWithIg.id,
+          accessToken: longLivedToken,
+          expiresInSeconds: llData.expires_in || 5184000,
+        };
+      }
     }
 
-    const pageWithIg = pagesData.data.find((p: any) => p.instagram_business_account?.id);
-    if (!pageWithIg) {
-      throw new Error('No Instagram Professional Account connected to your Facebook Page.');
+    // 4. Strategy B: Try fetching Instagram accounts directly linked to user
+    const igAccountsUrl = `https://graph.facebook.com/${this.graphApiVersion}/me?fields=id,name,instagram_business_account{id,username,profile_picture_url}&access_token=${longLivedToken}`;
+    const igRes = await fetch(igAccountsUrl);
+    const igData = await igRes.json();
+
+    if (igRes.ok && igData.instagram_business_account?.id) {
+      const igAccount = igData.instagram_business_account;
+      return {
+        instagramAccountId: igAccount.id,
+        instagramUsername: igAccount.username || 'instagram_account',
+        profilePictureUrl: igAccount.profile_picture_url,
+        facebookPageId: igData.id,
+        accessToken: longLivedToken,
+        expiresInSeconds: llData.expires_in || 5184000,
+      };
     }
 
-    const igAccount = pageWithIg.instagram_business_account;
+    // 5. Strategy C: Try /me/accounts with different fields  
+    const igUserUrl = `https://graph.facebook.com/${this.graphApiVersion}/me/instagram_accounts?fields=id,username,profile_picture_url&access_token=${longLivedToken}`;
+    const igUserRes = await fetch(igUserUrl);
+    const igUserData = await igUserRes.json();
 
-    return {
-      instagramAccountId: igAccount.id,
-      instagramUsername: igAccount.username || 'instagram_account',
-      profilePictureUrl: igAccount.profile_picture_url,
-      facebookPageId: pageWithIg.id,
-      accessToken: longLivedToken,
-      expiresInSeconds: llData.expires_in || 5184000,
+    if (igUserRes.ok && igUserData.data && igUserData.data.length > 0) {
+      const igAccount = igUserData.data[0];
+      return {
+        instagramAccountId: igAccount.id,
+        instagramUsername: igAccount.username || 'instagram_account',
+        profilePictureUrl: igAccount.profile_picture_url,
+        facebookPageId: undefined,
+        accessToken: longLivedToken,
+        expiresInSeconds: llData.expires_in || 5184000,
+      };
+    }
+
+    // All strategies failed - throw detailed error
+    const debugInfo = {
+      pagesStatus: pagesRes.status,
+      pagesData: pagesData,
+      igDirectStatus: igRes.status,
+      igDirectData: igData,
+      igUserStatus: igUserRes.status,
+      igUserData: igUserData,
     };
+    throw new Error(`Instagram account not found. All strategies failed. Debug: ${JSON.stringify(debugInfo)}`);
   }
 }
