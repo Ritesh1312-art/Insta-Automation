@@ -40,8 +40,8 @@ export class AutomationEngine {
       };
     }
 
-    // 2. Find Media item in DB (or match by Instagram media ID)
-    const media = await prisma.media.findFirst({
+    // 2. Find Media item in DB (or auto-create if new comment on recent post)
+    let media = await prisma.media.findFirst({
       where: {
         instagramAccountId,
         instagramMediaId: mediaId,
@@ -49,17 +49,23 @@ export class AutomationEngine {
     });
 
     if (!media) {
-      return {
-        status: 'IGNORED',
-        message: `No matching cached media found for media ID ${mediaId}`,
-      };
+      media = await prisma.media.create({
+        data: {
+          instagramAccountId,
+          instagramMediaId: mediaId,
+          mediaType: 'REEL',
+          caption: 'Instagram Post / Reel',
+          permalink: `https://instagram.com`,
+          timestamp: new Date(),
+        },
+      });
     }
 
-    // 3. Find ACTIVE automations mapped to this media ID or global media
+    // 3. Find ACTIVE automations mapped specifically to this media ID OR global automations (mediaId: null)
     const automations = await prisma.automation.findMany({
       where: {
         instagramAccountId,
-        mediaId: media.id,
+        OR: [{ mediaId: media.id }, { mediaId: null }],
         status: 'ACTIVE',
       },
       include: {
