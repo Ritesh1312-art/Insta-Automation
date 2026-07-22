@@ -19,17 +19,15 @@ export class MetaAuthService {
   public static getOAuthUrl(state: string, customRedirectUri?: string): string {
     const redirect = customRedirectUri || this.redirectUri;
 
-    if (this.configId) {
-      return `https://www.facebook.com/${this.graphApiVersion}/dialog/oauth?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
-        redirect
-      )}&config_id=${this.configId}&response_type=code&override_default_response_type=true&state=${state}`;
-    }
-
+    // Use explicit scopes (NOT config_id) — Business Login config_id causes
+    // /me/accounts to return empty pages. Standard scope-based login works correctly.
     const scopes = [
       'instagram_basic',
       'instagram_manage_comments',
+      'instagram_manage_messages',
       'pages_show_list',
       'pages_read_engagement',
+      'pages_messaging',
     ].join(',');
 
     return `https://www.facebook.com/${this.graphApiVersion}/dialog/oauth?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
