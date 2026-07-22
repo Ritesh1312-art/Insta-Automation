@@ -24,21 +24,33 @@ export async function GET() {
       totalSuccess,
       totalFailed,
       successRate,
-      connectionStatus: connection?.connectionStatus || 'CONNECTED',
-      instagramUsername: connection?.instagramUsername || 'ritesh_tech_creator',
+      connectionStatus: connection?.connectionStatus || (process.env.META_API_MOCK === 'true' ? 'CONNECTED' : 'DISCONNECTED'),
+      instagramUsername: connection?.instagramUsername || (process.env.META_API_MOCK === 'true' ? 'ritesh_tech_creator' : null),
     });
   } catch (error: any) {
-    // Return mock stats fallback when DB is offline
+    if (process.env.META_API_MOCK === 'true') {
+      return NextResponse.json({
+        totalAutomations: 3,
+        activeAutomations: 3,
+        totalCommentsReceived: 12,
+        totalRuns: 10,
+        totalSuccess: 10,
+        totalFailed: 0,
+        successRate: 100,
+        connectionStatus: 'CONNECTED',
+        instagramUsername: 'ritesh_tech_creator',
+      });
+    }
     return NextResponse.json({
-      totalAutomations: 3,
-      activeAutomations: 3,
-      totalCommentsReceived: 12,
-      totalRuns: 10,
-      totalSuccess: 10,
+      totalAutomations: 0,
+      activeAutomations: 0,
+      totalCommentsReceived: 0,
+      totalRuns: 0,
+      totalSuccess: 0,
       totalFailed: 0,
       successRate: 100,
-      connectionStatus: 'CONNECTED',
-      instagramUsername: 'ritesh_tech_creator',
+      connectionStatus: 'DISCONNECTED',
+      instagramUsername: null,
     });
   }
 }

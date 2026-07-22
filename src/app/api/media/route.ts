@@ -22,20 +22,24 @@ export async function GET(req: NextRequest) {
     });
 
     if (!connection) {
-      connection = await prisma.metaConnection.upsert({
-        where: { instagramAccountId: '17841439216724676' },
-        create: {
-          userId: user.id,
-          metaUserId: '1758819892233389',
-          instagramAccountId: '17841439216724676',
-          instagramUsername: 'stuti.ritesh90',
-          accessTokenEncrypted: encryptToken('mock_access_token'),
-          connectionStatus: 'CONNECTED',
-        },
-        update: {
-          connectionStatus: 'CONNECTED',
-        },
-      });
+      if (process.env.META_API_MOCK === 'true') {
+        connection = await prisma.metaConnection.upsert({
+          where: { instagramAccountId: '17841439216724676' },
+          create: {
+            userId: user.id,
+            metaUserId: '1758819892233389',
+            instagramAccountId: '17841439216724676',
+            instagramUsername: 'stuti.ritesh90',
+            accessTokenEncrypted: encryptToken('mock_access_token'),
+            connectionStatus: 'CONNECTED',
+          },
+          update: {
+            connectionStatus: 'CONNECTED',
+          },
+        });
+      } else {
+        return NextResponse.json({ media: [] });
+      }
     }
 
     let media = await prisma.media.findMany({
