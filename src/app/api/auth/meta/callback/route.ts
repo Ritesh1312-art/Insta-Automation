@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
         instagramUsername: connectedAccount.instagramUsername,
         profilePictureUrl: connectedAccount.profilePictureUrl,
         accessTokenEncrypted: encryptedToken,
-        scopes: ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages'],
+        scopes: ['instagram_basic', 'instagram_manage_comments', 'pages_show_list', 'pages_read_engagement'],
         expiresAt,
         connectionStatus: 'CONNECTED',
       },

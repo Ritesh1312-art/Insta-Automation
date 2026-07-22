@@ -32,7 +32,7 @@ export default function SettingsPage() {
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
             <h3 className="font-bold text-white text-sm">2. Webhook Callback URL & Verify Token</h3>
             <div className="font-mono bg-slate-950 p-3 rounded border border-slate-800 space-y-1 text-slate-200">
-              <div>Callback URL: <span className="text-emerald-400">https://your-domain.com/api/webhooks/meta</span></div>
+              <div>Callback URL: <span className="text-emerald-400">https://insta-automation-vert.vercel.app/api/webhooks/meta</span></div>
               <div>Verify Token: <span className="text-fuchsia-300">my_custom_webhook_verify_token_123</span></div>
               <div>Subscribed Field: <span className="text-amber-300">comments</span> under <span className="text-slate-100">instagram</span> object</div>
             </div>
@@ -43,7 +43,6 @@ export default function SettingsPage() {
             <div className="flex flex-wrap gap-2 pt-1 font-mono text-[11px]">
               <span className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-fuchsia-300">instagram_basic</span>
               <span className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-fuchsia-300">instagram_manage_comments</span>
-              <span className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-fuchsia-300">instagram_manage_messages</span>
               <span className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-fuchsia-300">pages_read_engagement</span>
               <span className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-fuchsia-300">pages_show_list</span>
             </div>
