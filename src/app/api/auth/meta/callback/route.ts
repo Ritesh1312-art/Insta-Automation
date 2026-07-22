@@ -195,10 +195,17 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('Error handling Meta OAuth Callback:', error);
     try {
-      const user = await prisma.user.findFirst();
+      let userId: string | undefined = undefined;
+      try {
+        const user = await prisma.user.findFirst();
+        userId = user?.id;
+      } catch (dbUserError) {
+        console.error('Failed to query user for error logging:', dbUserError);
+      }
+
       await prisma.auditLog.create({
         data: {
-          userId: user?.id,
+          userId: userId,
           action: 'META_AUTH_CALLBACK_ERROR',
           details: {
             errorMessage: error?.message || String(error),
@@ -209,8 +216,18 @@ export async function GET(req: NextRequest) {
     } catch (logDbError) {
       console.error('Failed to log auth error to DB:', logDbError);
     }
-    return NextResponse.redirect(
-      `${origin}/dashboard?error=${encodeURIComponent(error.message)}`
-    );
+
+    try {
+      const errMsg = error?.message || 'unknown_error';
+      return NextResponse.redirect(
+        new URL(`/dashboard?error=${encodeURIComponent(errMsg)}`, req.url)
+      );
+    } catch (redirectError) {
+      console.error('Failed to redirect on error:', redirectError);
+      return NextResponse.json(
+        { error: error?.message || 'Authentication failed' },
+        { status: 500 }
+      );
+    }
   }
 }
