@@ -1,4 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
+
+if (process.env.ALLOW_DATABASE_RESET !== 'true') {
+  throw new Error('Set ALLOW_DATABASE_RESET=true to run this destructive maintenance command.');
+}
+
 const prisma = new PrismaClient();
 
 async function main() {
