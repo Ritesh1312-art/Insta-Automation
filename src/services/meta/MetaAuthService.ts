@@ -14,16 +14,23 @@ export class MetaAuthService {
   private static appId = process.env.META_APP_ID || '';
   private static appSecret = process.env.META_APP_SECRET || '';
   private static redirectUri = process.env.META_REDIRECT_URI || 'http://localhost:3000/api/auth/meta/callback';
+  private static configId = process.env.META_CONFIG_ID || '';
 
   public static getOAuthUrl(state: string, customRedirectUri?: string): string {
+    const redirect = customRedirectUri || this.redirectUri;
+
+    if (this.configId) {
+      return `https://www.facebook.com/${this.graphApiVersion}/dialog/oauth?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
+        redirect
+      )}&config_id=${this.configId}&response_type=code&override_default_response_type=true&state=${state}`;
+    }
+
     const scopes = [
       'instagram_basic',
       'instagram_manage_comments',
       'pages_show_list',
       'pages_read_engagement',
     ].join(',');
-
-    const redirect = customRedirectUri || this.redirectUri;
 
     return `https://www.facebook.com/${this.graphApiVersion}/dialog/oauth?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
       redirect
