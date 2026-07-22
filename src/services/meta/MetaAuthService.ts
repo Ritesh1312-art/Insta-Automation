@@ -120,22 +120,41 @@ export class MetaAuthService {
       };
     }
 
-    // 6. Strategy D: Identify which Facebook user logged in (critical debug)
+    // 6. Strategy E: Direct Page ID fetch (for Business Manager managed pages)
+    // When pages are under Meta Business Manager, /me/accounts returns empty.
+    // If META_FACEBOOK_PAGE_ID is set, bypass discovery and fetch directly.
+    const knownPageId = process.env.META_FACEBOOK_PAGE_ID;
+    if (knownPageId) {
+      const directPageUrl = `https://graph.facebook.com/${this.graphApiVersion}/${knownPageId}?fields=id,name,instagram_business_account{id,username,profile_picture_url}&access_token=${longLivedToken}`;
+      const directPageRes = await fetch(directPageUrl);
+      const directPageData = await directPageRes.json();
+
+      if (directPageRes.ok && directPageData.instagram_business_account?.id) {
+        const igAccount = directPageData.instagram_business_account;
+        return {
+          instagramAccountId: igAccount.id,
+          instagramUsername: igAccount.username || 'instagram_account',
+          profilePictureUrl: igAccount.profile_picture_url,
+          facebookPageId: knownPageId,
+          accessToken: longLivedToken,
+          expiresInSeconds: llData.expires_in || 5184000,
+        };
+      }
+    }
+
+    // 7. Strategy F: Fetch /me to identify which Facebook user logged in (debug)
     const meUrl = `https://graph.facebook.com/${this.graphApiVersion}/me?fields=id,name,email&access_token=${longLivedToken}`;
     const meRes = await fetch(meUrl);
     const meData = await meRes.json();
 
     // All strategies failed - throw detailed error with user identity
     const debugInfo = {
-      // WHO LOGGED IN - this tells us if wrong Facebook account was used
       loggedInFacebookUser: meData,
-      // Pages this user manages
+      knownPageIdUsed: knownPageId || 'NOT SET - add META_FACEBOOK_PAGE_ID to env vars',
       pagesStatus: pagesRes.status,
       pagesData: pagesData,
-      // Direct Instagram check
       igDirectStatus: igRes.status,
       igDirectData: igData,
-      // Instagram accounts endpoint
       igUserStatus: igUserRes.status,
       igUserData: igUserData,
     };
