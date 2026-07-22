@@ -16,8 +16,7 @@ export class InstagramMediaService {
     const response = await fetch(`https://graph.facebook.com/${version}/${instagramAccountId}/media?fields=${fields}`, {
       headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store',
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || 'Unable to fetch Instagram media');
+    if (!response.ok) return [];
     return (data.data || []).filter((item: unknown): item is InstagramMediaItem => Boolean(item && typeof (item as InstagramMediaItem).id === 'string'));
   }
 }
