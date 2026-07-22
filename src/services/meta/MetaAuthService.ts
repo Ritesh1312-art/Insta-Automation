@@ -20,14 +20,13 @@ export class MetaAuthService {
     if (!tokenResponse.ok || !tokenData.access_token) throw new Error(tokenData.error?.message || 'Meta token exchange failed');
     const longLivedResponse = await fetch(`https://graph.facebook.com/${graphApiVersion}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${tokenData.access_token}`, { cache: 'no-store' });
     const longLivedData = await longLivedResponse.json(); const userToken = longLivedData.access_token || tokenData.access_token;
-    const pageId = process.env.META_FACEBOOK_PAGE_ID || '1165684963302442';
+    const pageId = process.env.META_FACEBOOK_PAGE_ID;
     const pageUrl = pageId ? `https://graph.facebook.com/${graphApiVersion}/${pageId}?fields=id,instagram_business_account{id,username,profile_picture_url},access_token` : `https://graph.facebook.com/${graphApiVersion}/me/accounts?fields=id,instagram_business_account{id,username,profile_picture_url},access_token`;
     const pagesResponse = await fetch(pageUrl, { headers: { Authorization: `Bearer ${userToken}` }, cache: 'no-store' });
     const pagesData = await pagesResponse.json();
     const page = pageId ? pagesData : pagesData.data?.find((candidate: any) => candidate.instagram_business_account?.id && candidate.access_token);
-    const pageToken = page.access_token || userToken;
-    if (!pagesResponse.ok || !page?.instagram_business_account?.id) throw new Error(pagesData.error?.message || `No Instagram professional account connected to Facebook Page ${pageId}`);
+    if (!pagesResponse.ok || !page?.instagram_business_account?.id || !page.access_token) throw new Error(pagesData.error?.message || 'No Facebook Page with a connected Instagram professional account was found');
     const account = page.instagram_business_account;
-    return { instagramAccountId: account.id, instagramUsername: account.username || account.id, profilePictureUrl: account.profile_picture_url, facebookPageId: page.id, accessToken: pageToken, expiresInSeconds: longLivedData.expires_in };
+    return { instagramAccountId: account.id, instagramUsername: account.username || account.id, profilePictureUrl: account.profile_picture_url, facebookPageId: page.id, accessToken: page.access_token, expiresInSeconds: longLivedData.expires_in };
   }
 }
