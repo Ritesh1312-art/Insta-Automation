@@ -1,4 +1,5 @@
 export interface ConnectedInstagramAccount {
+  metaUserId: string;
   instagramAccountId: string;
   instagramUsername: string;
   profilePictureUrl?: string;
@@ -33,6 +34,15 @@ export class MetaAuthService {
     const longLivedData = await longLivedResponse.json();
     const userToken = longLivedData.access_token || tokenData.access_token;
 
+    const userResponse = await fetch(`https://graph.facebook.com/${graphApiVersion}/me?fields=id`, {
+      headers: { Authorization: `Bearer ${userToken}` },
+      cache: 'no-store',
+    });
+    const metaUser = await userResponse.json();
+    if (!userResponse.ok || !metaUser.id) {
+      throw new Error(metaUser.error?.message || 'Unable to identify the authorized Meta user');
+    }
+
     const pageId = process.env.META_FACEBOOK_PAGE_ID;
     const pageUrl = pageId
       ? `https://graph.facebook.com/${graphApiVersion}/${pageId}?fields=id,instagram_business_account{id,username,profile_picture_url},access_token`
@@ -47,6 +57,7 @@ export class MetaAuthService {
 
     const account = page.instagram_business_account;
     return {
+      metaUserId: metaUser.id,
       instagramAccountId: account.id,
       instagramUsername: account.username || account.id,
       profilePictureUrl: account.profile_picture_url,
