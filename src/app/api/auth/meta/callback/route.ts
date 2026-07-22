@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     const expiresAt = account.expiresInSeconds ? new Date(Date.now() + account.expiresInSeconds * 1000) : null;
     await prisma.metaConnection.upsert({
       where: { instagramAccountId: account.instagramAccountId },
-      create: { userId, metaUserId: account.metaUserId, instagramAccountId: account.instagramAccountId, facebookPageId: account.facebookPageId, instagramUsername: account.instagramUsername, profilePictureUrl: account.profilePictureUrl, accessTokenEncrypted: encryptToken(account.accessToken), scopes: ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata'], expiresAt, connectionStatus: 'CONNECTED' },
+      create: { userId, metaUserId: account.metaUserId, instagramAccountId: account.instagramAccountId, facebookPageId: account.facebookPageId, instagramUsername: account.instagramUsername, profilePictureUrl: account.profilePictureUrl, accessTokenEncrypted: encryptToken(account.accessToken), scopes: ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_show_list', 'pages_read_engagement', 'business_management'], expiresAt, connectionStatus: 'CONNECTED' },
       update: { userId, metaUserId: account.metaUserId, facebookPageId: account.facebookPageId, instagramUsername: account.instagramUsername, profilePictureUrl: account.profilePictureUrl, accessTokenEncrypted: encryptToken(account.accessToken), expiresAt, connectionStatus: 'CONNECTED' },
     });
     const media = await InstagramMediaService.fetchMedia(account.instagramAccountId, account.accessToken);
