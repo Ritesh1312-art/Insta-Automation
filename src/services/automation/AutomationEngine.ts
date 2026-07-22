@@ -1,287 +1,122 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
 import { KeywordMatcher } from './KeywordMatcher';
 import { InstagramMessagingService } from '@/services/meta/InstagramMessagingService';
 
 export interface CommentEventPayload {
-  instagramAccountId: string;
-  mediaId: string;
-  commentId: string;
-  commenterId: string;
-  commenterUsername: string;
-  commentText: string;
-  rawPayload: any;
+  instagramAccountId: string; mediaId: string; commentId: string; commenterId: string;
+  commenterUsername: string; commentText: string; rawPayload: unknown;
 }
+type Result = { status: 'PROCESSED' | 'IGNORED' | 'FAILED'; message: string; automationRunId?: string };
+
+function retryAt(retryCount: number) { return new Date(Date.now() + Math.min(60 * 60 * 1000, 30_000 * 2 ** retryCount)); }
 
 export class AutomationEngine {
-  public static async processCommentEvent(payload: CommentEventPayload): Promise<{
-    status: 'PROCESSED' | 'IGNORED' | 'FAILED';
-    message: string;
-    automationRunId?: string;
-  }> {
-    const { instagramAccountId, mediaId, commentId, commenterId, commenterUsername, commentText } = payload;
-
-    // 1. Fetch Instagram MetaConnection details
-    const connection = await prisma.metaConnection.findUnique({
-      where: { instagramAccountId },
+  public static async ingestCommentEvent(payload: CommentEventPayload) {
+    const eventId = `${payload.instagramAccountId}:${payload.commentId}`;
+    return prisma.webhookEvent.upsert({
+      where: { eventId },
+      create: { ...payload, rawPayload: payload.rawPayload as Prisma.InputJsonValue, eventId, eventType: 'comments', status: 'RECEIVED' },
+      update: {},
     });
+  }
 
-    if (!connection) {
-      return {
-        status: 'IGNORED',
-        message: `No active MetaConnection found for Instagram Account ID ${instagramAccountId}`,
-      };
+  public static async processCommentEvent(payload: CommentEventPayload): Promise<Result> {
+    const event = await this.ingestCommentEvent(payload);
+    return this.processWebhookEvent(event.id);
+  }
+
+  public static async processWebhookEvent(eventId: string): Promise<Result> {
+    const claimed = await prisma.webhookEvent.updateMany({ where: { id: eventId, status: { in: ['RECEIVED', 'RETRYING', 'PROCESSING'] }, OR: [{ status: { in: ['RECEIVED', 'RETRYING'] } }, { processingStartedAt: { lte: new Date(Date.now() - 10 * 60 * 1000) } }] }, data: { status: 'PROCESSING', processingStartedAt: new Date() } });
+    if (claimed.count === 0) return { status: 'IGNORED', message: 'Webhook event is already being processed or completed' };
+    const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
+    if (!event?.instagramAccountId || !event.mediaId || !event.commentId || !event.commenterId || event.commentText === null) return this.finishEvent(eventId, 'IGNORED', 'Incomplete comment event');
+
+    const connection = await prisma.metaConnection.findUnique({ where: { instagramAccountId: event.instagramAccountId } });
+    if (!connection || connection.connectionStatus !== 'CONNECTED') return this.finishEvent(eventId, 'IGNORED', 'No connected Instagram account for this event');
+    if (connection.expiresAt && connection.expiresAt <= new Date()) {
+      await prisma.metaConnection.update({ where: { id: connection.id }, data: { connectionStatus: 'TOKEN_EXPIRED' } });
+      return this.finishEvent(eventId, 'IGNORED', 'Instagram access token has expired; reconnect the account');
     }
 
-    if (connection.connectionStatus !== 'CONNECTED') {
-      return {
-        status: 'IGNORED',
-        message: `MetaConnection is in ${connection.connectionStatus} state`,
-      };
-    }
-
-    // 2. Find Media item in DB (or auto-create if new comment on recent post)
-    let media = await prisma.media.findFirst({
-      where: {
-        instagramAccountId,
-        instagramMediaId: mediaId,
-      },
+    const media = await prisma.media.upsert({
+      where: { instagramMediaId: event.mediaId },
+      create: { instagramAccountId: event.instagramAccountId, instagramMediaId: event.mediaId, mediaType: 'REEL', caption: null, permalink: null, timestamp: new Date() },
+      update: {},
     });
-
-    if (!media) {
-      media = await prisma.media.create({
-        data: {
-          instagramAccountId,
-          instagramMediaId: mediaId,
-          mediaType: 'REEL',
-          caption: 'Instagram Post / Reel',
-          permalink: `https://instagram.com`,
-          timestamp: new Date(),
-        },
-      });
-    }
-
-    // 3. Find ACTIVE automations mapped specifically to this media ID OR global automations (mediaId: null)
     const automations = await prisma.automation.findMany({
-      where: {
-        instagramAccountId,
-        OR: [{ mediaId: media.id }, { mediaId: null }],
-        status: 'ACTIVE',
-      },
-      include: {
-        resource: true,
-      },
+      where: { instagramAccountId: event.instagramAccountId, status: 'ACTIVE', OR: [{ mediaId: media.id }, { mediaId: null }] }, include: { resource: true },
     });
+    let automation = automations.find((candidate) => candidate.triggerType === 'KEYWORD' && KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, 'KEYWORD').matched);
+    let matchedKeyword = automation ? KeywordMatcher.isMatch(event.commentText || '', automation.keywords, automation.matchingMode as any, 'KEYWORD').matchedKeyword || '' : '';
+    if (!automation) { automation = automations.find((candidate) => candidate.triggerType === 'ANY_COMMENT'); matchedKeyword = automation ? 'ANY_COMMENT' : ''; }
+    if (!automation) return this.finishEvent(eventId, 'IGNORED', 'No active automation matched this comment');
+    if (automation.ignoreOwnerComments && event.commenterUsername === connection.instagramUsername) return this.finishEvent(eventId, 'IGNORED', 'Owner comment ignored');
 
-    if (automations.length === 0) {
-      return {
-        status: 'IGNORED',
-        message: `No active automations mapped to media ID ${media.id}`,
-      };
+    if (automation.oneDeliveryPerUser) {
+      const priorDelivery = await prisma.automationRun.findFirst({ where: { automationId: automation.id, status: 'API_ACCEPTED', webhookEvent: { commenterId: event.commenterId } } });
+      if (priorDelivery) return this.finishEvent(eventId, 'IGNORED', 'One delivery per user is enabled');
     }
-
-    // 4. Determine matching automation with priority: Specific KEYWORD > ANY_COMMENT
-    let matchedAutomation: (typeof automations)[0] | null = null;
-    let matchedKeyword = '';
-
-    const keywordAutomations = automations.filter((a) => a.triggerType === 'KEYWORD');
-    for (const auto of keywordAutomations) {
-      const match = KeywordMatcher.isMatch(
-        commentText,
-        auto.keywords,
-        auto.matchingMode as any,
-        'KEYWORD'
-      );
-      if (match.matched) {
-        matchedAutomation = auto;
-        matchedKeyword = match.matchedKeyword || '';
-        break;
-      }
+    const idempotencyKey = `${event.instagramAccountId}:${event.commentId}:${automation.id}`;
+    let run;
+    let isNewRun = false;
+    try {
+      run = await prisma.automationRun.create({ data: { automationId: automation.id, webhookEventId: event.id, idempotencyKey, status: 'PROCESSING' } });
+      isNewRun = true;
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        const existingRun = await prisma.automationRun.findUnique({ where: { idempotencyKey } });
+        if (!existingRun || existingRun.status !== 'RETRYING') return this.finishEvent(eventId, 'IGNORED', 'Duplicate comment delivery prevented');
+        run = await prisma.automationRun.update({ where: { id: existingRun.id }, data: { status: 'PROCESSING', nextRetryAt: null } });
+      } else throw error;
     }
-
-    if (!matchedAutomation) {
-      const anyCommentAutomation = automations.find((a) => a.triggerType === 'ANY_COMMENT');
-      if (anyCommentAutomation) {
-        matchedAutomation = anyCommentAutomation;
-        matchedKeyword = 'ANY_COMMENT';
-      }
-    }
-
-    if (!matchedAutomation) {
-      return {
-        status: 'IGNORED',
-        message: `Comment "${commentText}" did not match any keyword triggers`,
-      };
-    }
-
-    // 5. Exclude owner comments if configured
-    if (matchedAutomation.ignoreOwnerComments && commenterUsername === connection.instagramUsername) {
-      return {
-        status: 'IGNORED',
-        message: `Ignored comment made by account owner @${commenterUsername}`,
-      };
-    }
-
-    // 6. Check Idempotency composite key: instagramAccountId + commentId + automationId
-    const idempotencyKey = `${instagramAccountId}:${commentId}:${matchedAutomation.id}`;
-
-    const existingRun = await prisma.automationRun.findUnique({
-      where: { idempotencyKey },
-    });
-
-    if (existingRun) {
-      return {
-        status: 'IGNORED',
-        message: `Idempotency check: Comment ${commentId} has already been processed for automation ${matchedAutomation.name}`,
-        automationRunId: existingRun.id,
-      };
-    }
-
-    // 7. Store Webhook Event and create QUEUED Automation Run transactionally
-    const webhookEvent = await prisma.webhookEvent.create({
-      data: {
-        instagramAccountId,
-        eventType: 'comments',
-        commentId,
-        mediaId,
-        commenterId,
-        commenterUsername,
-        commentText,
-        rawPayload: payload.rawPayload,
-        status: 'PROCESSING',
-      },
-    });
-
-    const run = await prisma.automationRun.create({
-      data: {
-        automationId: matchedAutomation.id,
-        webhookEventId: webhookEvent.id,
-        idempotencyKey,
-        status: 'PROCESSING',
-      },
-    });
-
-    // 8. Prepare dynamic template message
-    const resourceUrl = matchedAutomation.resource?.url || matchedAutomation.resource?.textContent || '';
-    const dmContent = matchedAutomation.dmMessageTemplate
-      .replace(/\{\{username\}\}/g, commenterUsername || 'there')
-      .replace(/\{\{comment_text\}\}/g, commentText)
+    if (isNewRun) await prisma.automation.update({ where: { id: automation.id }, data: { totalTriggers: { increment: 1 }, lastTriggeredAt: new Date() } });
+    const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
+    const message = automation.dmMessageTemplate
+      .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
+      .replace(/\{\{comment_text\}\}/g, event.commentText || '')
       .replace(/\{\{post_caption\}\}/g, media.caption || '')
-      .replace(/\{\{resource_url\}\}/g, resourceUrl)
+      .replace(/\{\{resource_url\}\}/g, resourceValue)
       .replace(/\{\{keyword\}\}/g, matchedKeyword);
+    const dm = await InstagramMessagingService.sendPrivateReply({ instagramAccountId: event.instagramAccountId, commentId: event.commentId, messageText: message, accessToken: decryptToken(connection.accessTokenEncrypted) });
+    if (!dm.success) return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed');
 
-    const decryptedAccessToken = decryptToken(connection.accessTokenEncrypted);
-
-    // 9. Dispatch official Meta Private Reply DM
-    const dmResult = await InstagramMessagingService.sendPrivateReply({
-      commentId,
-      messageText: dmContent,
-      accessToken: decryptedAccessToken,
-    });
-
-    // 10. Optional Public Comment Auto-Reply
-    let publicReplyStatus = 'SKIPPED';
-    let publicReplyId: string | undefined = undefined;
-
-    if (matchedAutomation.publicReplyEnabled && matchedAutomation.publicReplyTemplates.length > 0) {
-      const templates = matchedAutomation.publicReplyTemplates;
-      const randomReply = templates[Math.floor(Math.random() * templates.length)];
-      const publicReplyResult = await InstagramMessagingService.sendPublicReply({
-        commentId,
-        messageText: randomReply,
-        accessToken: decryptedAccessToken,
-      });
-
-      publicReplyStatus = publicReplyResult.success ? 'SENT' : 'FAILED';
-      publicReplyId = publicReplyResult.responseId;
+    let publicReplyStatus = 'SKIPPED'; let publicReplyId: string | undefined;
+    if (automation.publicReplyEnabled && automation.publicReplyTemplates.length) {
+      const reply = automation.publicReplyTemplates[Math.floor(Math.random() * automation.publicReplyTemplates.length)];
+      const publicReply = await InstagramMessagingService.sendPublicReply({ commentId: event.commentId, messageText: reply, accessToken: decryptToken(connection.accessTokenEncrypted) });
+      publicReplyStatus = publicReply.success ? 'SENT' : 'FAILED'; publicReplyId = publicReply.responseId;
     }
+    await prisma.$transaction([
+      prisma.automationRun.update({ where: { id: run.id }, data: { status: 'API_ACCEPTED', dmStatus: 'SENT', dmResponseId: dm.responseId, publicReplyStatus, publicReplyId, executedAt: new Date() } }),
+      prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 }, lastTriggeredAt: new Date() } }),
+      prisma.contact.upsert({ where: { instagramAccountId_igsid: { instagramAccountId: event.instagramAccountId, igsid: event.commenterId } }, create: { instagramAccountId: event.instagramAccountId, igsid: event.commenterId, username: event.commenterUsername }, update: { username: event.commenterUsername, lastInteraction: new Date(), totalInteractions: { increment: 1 } } }),
+      prisma.webhookEvent.update({ where: { id: event.id }, data: { status: 'PROCESSED', processedAt: new Date(), errorDetails: null, nextRetryAt: null, processingStartedAt: null } }),
+    ]);
+    return { status: 'PROCESSED', message: 'Private reply accepted by Meta', automationRunId: run.id };
+  }
 
-    // 11. Update Run & Automation Analytics
-    if (dmResult.success) {
-      await prisma.automationRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'API_ACCEPTED',
-          dmStatus: 'SENT',
-          dmResponseId: dmResult.responseId,
-          publicReplyStatus,
-          publicReplyId,
-          executedAt: new Date(),
-        },
-      });
+  public static async processDueEvents(limit = 25) {
+    const now = new Date();
+    const events = await prisma.webhookEvent.findMany({ where: { OR: [{ status: 'RECEIVED' }, { status: 'RETRYING', nextRetryAt: { lte: now } }, { status: 'PROCESSING', processingStartedAt: { lte: new Date(now.getTime() - 10 * 60 * 1000) } }] }, orderBy: { createdAt: 'asc' }, take: limit });
+    return Promise.all(events.map((event) => this.processWebhookEvent(event.id)));
+  }
 
-      await prisma.automation.update({
-        where: { id: matchedAutomation.id },
-        data: {
-          totalTriggers: { increment: 1 },
-          totalSuccess: { increment: 1 },
-          lastTriggeredAt: new Date(),
-        },
-      });
+  private static async finishEvent(eventId: string, status: 'IGNORED', message: string): Promise<Result> {
+    await prisma.webhookEvent.update({ where: { id: eventId }, data: { status, errorDetails: message, processedAt: new Date(), processingStartedAt: null } });
+    return { status, message };
+  }
 
-      // Update Contact interaction history
-      await prisma.contact.upsert({
-        where: {
-          instagramAccountId_igsid: {
-            instagramAccountId,
-            igsid: commenterId,
-          },
-        },
-        create: {
-          instagramAccountId,
-          igsid: commenterId,
-          username: commenterUsername,
-          firstInteraction: new Date(),
-          lastInteraction: new Date(),
-          totalInteractions: 1,
-        },
-        update: {
-          username: commenterUsername,
-          lastInteraction: new Date(),
-          totalInteractions: { increment: 1 },
-        },
-      });
-
-      await prisma.webhookEvent.update({
-        where: { id: webhookEvent.id },
-        data: { status: 'PROCESSED', processedAt: new Date() },
-      });
-
-      return {
-        status: 'PROCESSED',
-        message: `Successfully executed private reply for comment ${commentId}`,
-        automationRunId: run.id,
-      };
-    } else {
-      await prisma.automationRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'FAILED',
-          dmStatus: 'FAILED',
-          errorCategory: dmResult.errorCategory,
-          errorMessage: dmResult.errorMessage,
-        },
-      });
-
-      await prisma.automation.update({
-        where: { id: matchedAutomation.id },
-        data: {
-          totalTriggers: { increment: 1 },
-          totalFailed: { increment: 1 },
-          lastTriggeredAt: new Date(),
-        },
-      });
-
-      await prisma.webhookEvent.update({
-        where: { id: webhookEvent.id },
-        data: { status: 'FAILED', errorDetails: dmResult.errorMessage },
-      });
-
-      return {
-        status: 'FAILED',
-        message: `Failed to send private reply: ${dmResult.errorMessage}`,
-        automationRunId: run.id,
-      };
-    }
+  private static async failRun(event: any, runId: string, automationId: string, category: string | undefined, message: string): Promise<Result> {
+    const retryable = category === 'TRANSIENT' || category === 'RATE_LIMIT';
+    const retryCount = event.retryCount + 1;
+    const retriesLeft = retryable && retryCount <= 5;
+    await prisma.$transaction([
+      prisma.automationRun.update({ where: { id: runId }, data: { status: retriesLeft ? 'RETRYING' : 'FAILED', dmStatus: 'FAILED', errorCategory: category, errorMessage: message, retryCount, nextRetryAt: retriesLeft ? retryAt(retryCount) : null } }),
+      ...(retriesLeft ? [] : [prisma.automation.update({ where: { id: automationId }, data: { totalFailed: { increment: 1 }, lastTriggeredAt: new Date() } })]),
+      prisma.webhookEvent.update({ where: { id: event.id }, data: { status: retriesLeft ? 'RETRYING' : 'FAILED', errorDetails: message, retryCount, nextRetryAt: retriesLeft ? retryAt(retryCount) : null, processedAt: retriesLeft ? null : new Date(), processingStartedAt: null } }),
+    ]);
+    return { status: 'FAILED', message, automationRunId: runId };
   }
 }

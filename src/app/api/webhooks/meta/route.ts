@@ -1,69 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { WebhookService } from '@/services/webhooks/WebhookService';
 import { AutomationEngine } from '@/services/automation/AutomationEngine';
 
-/**
- * GET /api/webhooks/meta
- * Meta Webhook Challenge Verification
- */
+export const runtime = 'nodejs';
+
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const mode = searchParams.get('hub.mode');
-  const token = searchParams.get('hub.verify_token');
-  const challenge = searchParams.get('hub.challenge');
-
-  const verifiedChallenge = WebhookService.verifyChallenge(mode, token, challenge);
-
-  if (verifiedChallenge) {
-    console.log('✅ [META WEBHOOK VERIFIED] Subscription challenge verified successfully.');
-    return new NextResponse(verifiedChallenge, { status: 200 });
-  } else {
-    console.error('❌ [META WEBHOOK VERIFICATION FAILED] Token mismatch or invalid request');
-    return NextResponse.json({ error: 'Verification failed' }, { status: 403 });
-  }
+  const params = new URL(req.url).searchParams;
+  const challenge = WebhookService.verifyChallenge(params.get('hub.mode'), params.get('hub.verify_token'), params.get('hub.challenge'));
+  return challenge ? new NextResponse(challenge, { status: 200 }) : NextResponse.json({ error: 'Verification failed' }, { status: 403 });
 }
 
-/**
- * POST /api/webhooks/meta
- * Meta Event Delivery Receiver
- */
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
-    const signature = req.headers.get('x-hub-signature-256');
-
-    // 1. Verify HMAC-SHA256 signature
-    const isValid = WebhookService.verifySignature(rawBody, signature);
-    if (!isValid) {
-      console.error('❌ [META WEBHOOK SIGNATURE INVALID] Rejected unauthorized webhook payload');
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    }
-
-    const payload = JSON.parse(rawBody);
-
-    // 2. Parse & normalize comment events
-    const events = WebhookService.parseCommentEvents(payload);
-
-    if (events.length === 0) {
-      return NextResponse.json({ status: 'NO_EVENTS_PARSED' }, { status: 200 });
-    }
-
-    // 3. Process events asynchronously in background & return 200 OK fast
-    (async () => {
-      for (const event of events) {
-        try {
-          const result = await AutomationEngine.processCommentEvent(event);
-          console.log(`⚡ [AUTOMATION ENGINE RESULT] ${result.status}: ${result.message}`);
-        } catch (err: any) {
-          console.error('💥 [AUTOMATION ENGINE ERROR]', err);
-        }
-      }
-    })();
-
-    // Meta expects HTTP 200 OK within 5 seconds (we acknowledge in < 50ms!)
-    return NextResponse.json({ status: 'RECEIVED', eventCount: events.length }, { status: 200 });
-  } catch (error: any) {
-    console.error('❌ [WEBHOOK RECEIVER ERROR]', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    if (Buffer.byteLength(rawBody, 'utf8') > 1_000_000) return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 });
+    if (!WebhookService.verifySignature(rawBody, req.headers.get('x-hub-signature-256'))) return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    const events = WebhookService.parseCommentEvents(JSON.parse(rawBody));
+    const stored = await Promise.all(events.map((event) => AutomationEngine.ingestCommentEvent(event)));
+    waitUntil(Promise.allSettled(stored.map((event) => AutomationEngine.processWebhookEvent(event.id))).then(() => undefined));
+    return NextResponse.json({ status: 'RECEIVED', eventCount: stored.length });
+  } catch (error) {
+    console.error('Meta webhook receiver error:', error);
+    return NextResponse.json({ error: 'Unable to receive webhook' }, { status: 500 });
   }
 }

@@ -59,10 +59,10 @@ export default function ContentPage() {
             className="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden flex flex-col justify-between hover:border-slate-700 transition-all shadow-lg"
           >
             <div>
-              {item.mediaUrl && (
+              {(item.thumbnailUrl || item.mediaUrl) && (
                 <div className="h-48 bg-slate-900 relative overflow-hidden border-b border-slate-800">
                   <img
-                    src={item.mediaUrl}
+                    src={item.thumbnailUrl || item.mediaUrl}
                     alt="Reel thumbnail"
                     className="w-full h-full object-cover"
                   />

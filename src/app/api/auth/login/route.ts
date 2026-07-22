@@ -6,24 +6,20 @@ import { signToken } from '@/lib/auth';
 export async function POST(req: NextRequest) {
   try {
     const { email, password } = await req.json();
+    if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    }
 
-    let user = await prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
-      // Seed default admin user for MVP setup
-      const passwordHash = await bcrypt.hash(password || 'admin123', 10);
-      user = await prisma.user.create({
-        data: {
-          email,
-          passwordHash,
-          name: 'Demo Creator',
-        },
-      });
-    } else {
-      const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) {
-        return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
-      }
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    }
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
     const token = await signToken({

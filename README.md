@@ -1,95 +1,26 @@
-# 🚀 InstaDM Auto — Self-Hosted Instagram Comment-to-DM Platform
+# InstaDM Auto
 
-A production-grade, event-driven, self-hosted web application that automates **Instagram Comment-to-DM private replies** using official **Meta Graph APIs & Webhooks**.
+Instagram Comment-to-DM automation using official Meta Graph APIs and webhooks. Connected accounts, media, comments, and replies are always real Meta data.
 
----
+## Required configuration
 
-## 📌 Features
+Copy `.env.example` to `.env` and set every value with a production secret. `APP_URL` must be the HTTPS deployment URL. In Meta, configure the OAuth redirect URI and webhook callback as `https://your-domain.example/api/auth/meta/callback` and `https://your-domain.example/api/webhooks/meta`, then subscribe the Instagram `comments` field.
 
-- **100% Official Meta Graph API Compliance**: Uses official Meta Webhooks (`comments`) and official Instagram Private Reply endpoints (`/v19.0/{comment-id}/private_replies`).
-- **Post-Specific Deterministic Mapping**: Reel A comments ("HANUMAN") receive Link A; Reel B comments ("PROMPT") receive Link B.
-- **Fast Webhook & Composite Idempotency**: Responds to Meta webhooks in < 500ms and prevents duplicate DMs using composite database keys (`instagramAccountId:commentId:automationId`).
-- **Keyword Normalizer**: Supports `EXACT`, `CONTAINS`, and `STARTS_WITH` keyword matching modes.
-- **Dynamic Template Variables**: Supports `{{username}}`, `{{comment_text}}`, `{{post_caption}}`, `{{resource_url}}`, and `{{keyword}}`.
-- **Public Comment Auto-Replies**: Optional public comment replies with rotating variations (e.g. "Sent! Check your DMs 📩").
-- **Offline Mock Mode**: Built-in `META_API_MOCK=true` mode for 100% offline local development & webhook testing without Meta access tokens.
-- **SaaS Mobile Dashboard**: Built with Next.js 14 App Router, React, TypeScript, and Tailwind CSS.
-- **AES-256 Token Encryption**: Access tokens encrypted at rest.
+The connected Instagram account must be a professional account associated with a Facebook Page. Required permissions are `instagram_basic`, `instagram_manage_comments`, `instagram_manage_messages`, `pages_show_list`, `pages_read_engagement`, and `pages_manage_metadata`.
 
----
-
-## 🛠️ Technology Stack
-
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript (Strict Mode)
-- **Styling**: Tailwind CSS
-- **Database & ORM**: PostgreSQL + Prisma ORM
-- **Authentication & Security**: JWT Cookies, AES-256-GCM Token Encryption, HMAC-SHA256 Signature Verification
-- **Icons**: Lucide React
-
----
-
-## 📋 Prerequisites & Meta App Setup
-
-1. **Meta Developer Account**: Register at [developers.facebook.com](https://developers.facebook.com).
-2. **Meta App Creation**: Create a **Business** type application.
-3. **Products**: Add **Instagram Graph API** and **Webhooks**.
-4. **Webhook Subscription**:
-   - Object: `instagram`
-   - Callback URL: `https://your-domain.com/api/webhooks/meta`
-   - Verify Token: `my_custom_webhook_verify_token_123`
-   - Subscribed Field: `comments`
-5. **Permissions Required**: `instagram_basic`, `instagram_manage_comments`, `instagram_manage_messages`, `pages_read_engagement`, `pages_show_list`.
-
----
-
-## ⚙️ Environment Variables (`.env`)
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/instagram_automation?schema=public"
-APP_URL="http://localhost:3000"
-
-AUTH_SECRET="super-secret-jwt-key-change-in-production-min-32-chars"
-ENCRYPTION_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
-META_APP_ID="your-meta-app-id"
-META_APP_SECRET="your-meta-app-secret"
-META_VERIFY_TOKEN="my_custom_webhook_verify_token_123"
-META_GRAPH_API_VERSION="v19.0"
-META_REDIRECT_URI="http://localhost:3000/api/auth/meta/callback"
-
-META_API_MOCK="true"
-```
-
----
-
-## 🚀 Quick Start (Local Development)
+## Run locally
 
 ```bash
-# 1. Clone repository & install dependencies
-npm install
-
-# 2. Setup Prisma Database
+npm ci
 npx prisma generate
 npx prisma db push
-
-# 3. Start Development Server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Use the dashboard to sign in, connect Meta, sync posts, create resources, and create automations. The configuration checker validates a selected post without creating a comment or sending a DM.
 
----
+## Delivery guarantees
 
-## 🧪 Testing Webhook Automations Locally
+Webhook requests are verified with the Meta app secret, persisted before acknowledgement, deduplicated by Instagram account and comment ID, and processed immediately with a Vercel background continuation. `vercel.json` schedules a protected retry worker for transient failures.
 
-1. Open Dashboard -> Click **"Test Comment Simulator"**.
-2. Select **Reel A ("Hanuman Chalisa")**, type comment **"HANUMAN"**, and click **Simulate**.
-3. Observe instant idempotency check, matching logic, and private reply payload in the **Activity & Logs** tab!
-
----
-
-## 🛡️ Known Meta API Limitations
-
-- **Private Reply Policy**: Meta permits maximum **1 private reply per comment**, within **7 days** of comment creation.
-- **Follower Status**: Direct follower verification for arbitrary commenters is **UNSUPPORTED** by official Meta APIs. The app uses compliant two-step CTA prompts.
+Meta allows one private reply per comment and requires it within Meta's permitted reply window.

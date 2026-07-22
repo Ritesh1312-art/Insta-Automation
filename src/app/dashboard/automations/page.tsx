@@ -65,7 +65,7 @@ export default function AutomationsPage() {
     const selectedMediaObj = mediaList.find((m) => m.id === mediaId);
     const autoName = customPostName || selectedMediaObj?.caption?.slice(0, 35) || 'Image Prompt Automation';
 
-    const dmMessageTemplate = `Hey {{username}}! 🎁 Complete these 2 quick steps to get your prompt:\n\n👉 Step 1: Follow @stuti.ritesh90 👇\nhttps://instagram.com/stuti.ritesh90\n\n⚠️ NOTE: Follow karna compulsory hai, varna future prompt links receive nahi honge!\n\n👉 Step 2: Here is your requested Image Prompt 👇\n${promptContent}`;
+    const dmMessageTemplate = `Hi {{username}}! Here is the prompt you requested:\n\n${promptContent}`;
 
     try {
       const res = await fetch('/api/automations', {
@@ -73,7 +73,7 @@ export default function AutomationsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: autoName,
-          mediaId: mediaId === 'all_reels_global' ? null : mediaId,
+          mediaId: mediaId || null,
           triggerType: 'KEYWORD',
           matchingMode: 'CONTAINS',
           keywords: keywords.length > 0 ? keywords : ['PROMPT'],
@@ -218,7 +218,7 @@ export default function AutomationsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-56 overflow-y-auto pr-1 border border-slate-800 rounded-xl p-2 bg-slate-900/50">
                   {mediaList.map((m) => {
                     const isSelected = mediaId === m.id;
-                    const thumbUrl = m.thumbnailUrl || m.mediaUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80';
+                    const thumbUrl = m.thumbnailUrl || m.mediaUrl;
 
                     return (
                       <div
@@ -230,11 +230,7 @@ export default function AutomationsPage() {
                             : 'bg-slate-900 border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        <img
-                          src={thumbUrl}
-                          alt="Thumbnail"
-                          className="w-12 h-12 rounded-lg object-cover bg-slate-800 flex-shrink-0"
-                        />
+                        {thumbUrl ? <img src={thumbUrl} alt="Instagram post thumbnail" className="w-12 h-12 rounded-lg object-cover bg-slate-800 flex-shrink-0" /> : <div className="w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0"><ImageIcon className="w-5 h-5 text-slate-500" /></div>}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-slate-200 font-medium truncate">
                             {m.caption || 'Instagram Post / Reel'}

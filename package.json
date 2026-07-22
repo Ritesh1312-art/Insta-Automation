@@ -17,7 +17,8 @@
     "clsx": "^2.1.0",
     "jose": "^5.2.2",
     "lucide-react": "^0.330.0",
-    "next": "14.1.0",
+    "@vercel/functions": "^2.2.13",
+    "next": "15.5.21",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwind-merge": "^2.2.1"
@@ -28,9 +29,13 @@
     "@types/react": "^18.2.57",
     "@types/react-dom": "^18.2.19",
     "autoprefixer": "^10.4.17",
-    "postcss": "^8.4.35",
+    "postcss": "8.5.10",
     "prisma": "^5.10.2",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "postcss": "$postcss",
+    "sharp": "0.35.2"
   }
 }

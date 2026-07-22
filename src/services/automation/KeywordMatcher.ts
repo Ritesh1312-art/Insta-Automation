@@ -9,7 +9,7 @@ export class KeywordMatcher {
     return text
       .toLowerCase()
       .trim()
-      .replace(/[\u1F600-\u1F64F\u1F300-\u1F5FF\u1F680-\u1F6FF]/g, '') // remove common emojis for clean text matching
+      .replace(/\p{Extended_Pictographic}/gu, '')
       .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '')
       .replace(/\s+/g, ' ');
   }

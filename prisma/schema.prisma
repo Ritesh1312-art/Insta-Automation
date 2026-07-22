@@ -118,11 +118,16 @@ model WebhookEvent {
   rawPayload         Json
   status             String          @default("RECEIVED") // RECEIVED, PROCESSING, PROCESSED, FAILED, IGNORED, RETRYING
   errorDetails       String?
+  retryCount         Int             @default(0)
+  nextRetryAt        DateTime?
+  processingStartedAt DateTime?
   processedAt        DateTime?
   createdAt          DateTime        @default(now())
   runs               AutomationRun[]
 
   @@index([status, createdAt])
+  @@index([status, nextRetryAt])
+  @@index([status, processingStartedAt])
   @@index([commentId])
 }
 

@@ -1,57 +1,21 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-
+import { requireSessionUser } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
-
 
 export async function GET() {
   try {
-    const totalAutomations = await prisma.automation.count();
-    const activeAutomations = await prisma.automation.count({ where: { status: 'ACTIVE' } });
-    const totalCommentsReceived = await prisma.webhookEvent.count();
-    const totalRuns = await prisma.automationRun.count();
-    const totalSuccess = await prisma.automationRun.count({ where: { status: 'API_ACCEPTED' } });
-    const totalFailed = await prisma.automationRun.count({ where: { status: 'FAILED' } });
-    const connection = await prisma.metaConnection.findFirst();
-
-    const successRate = totalRuns > 0 ? Math.round((totalSuccess / totalRuns) * 100) : 100;
-
-    return NextResponse.json({
-      totalAutomations,
-      activeAutomations,
-      totalCommentsReceived,
-      totalRuns,
-      totalSuccess,
-      totalFailed,
-      successRate,
-      connectionStatus: connection?.connectionStatus || (process.env.META_API_MOCK === 'true' ? 'CONNECTED' : 'DISCONNECTED'),
-      instagramUsername: connection?.instagramUsername || (process.env.META_API_MOCK === 'true' ? 'ritesh_tech_creator' : null),
-    });
-  } catch (error: any) {
-    if (process.env.META_API_MOCK === 'true') {
-      return NextResponse.json({
-        totalAutomations: 3,
-        activeAutomations: 3,
-        totalCommentsReceived: 12,
-        totalRuns: 10,
-        totalSuccess: 10,
-        totalFailed: 0,
-        successRate: 100,
-        connectionStatus: 'CONNECTED',
-        instagramUsername: 'ritesh_tech_creator',
-      });
-    }
-    return NextResponse.json({
-      totalAutomations: 0,
-      activeAutomations: 0,
-      totalCommentsReceived: 0,
-      totalRuns: 0,
-      totalSuccess: 0,
-      totalFailed: 0,
-      successRate: 100,
-      connectionStatus: 'DISCONNECTED',
-      instagramUsername: null,
-    });
+    const user = await requireSessionUser();
+    const connection = await prisma.metaConnection.findFirst({ where: { userId: user.userId }, orderBy: { createdAt: 'desc' } });
+    const eventFilter = { metaConnection: { userId: user.userId } };
+    const runFilter = { automation: { userId: user.userId } };
+    const [totalAutomations, activeAutomations, totalCommentsReceived, totalRuns, totalSuccess, totalFailed] = await Promise.all([
+      prisma.automation.count({ where: { userId: user.userId } }), prisma.automation.count({ where: { userId: user.userId, status: 'ACTIVE' } }),
+      prisma.webhookEvent.count({ where: eventFilter }), prisma.automationRun.count({ where: runFilter }),
+      prisma.automationRun.count({ where: { ...runFilter, status: 'API_ACCEPTED' } }), prisma.automationRun.count({ where: { ...runFilter, status: 'FAILED' } }),
+    ]);
+    return NextResponse.json({ totalAutomations, activeAutomations, totalCommentsReceived, totalRuns, totalSuccess, totalFailed, successRate: totalRuns ? Math.round(totalSuccess / totalRuns * 100) : 0, connectionStatus: connection?.connectionStatus || 'DISCONNECTED', instagramUsername: connection?.instagramUsername || null });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error && error.message === 'UNAUTHORIZED' ? 'Authentication required' : 'Unable to load dashboard statistics' }, { status: error instanceof Error && error.message === 'UNAUTHORIZED' ? 401 : 500 });
   }
 }
-

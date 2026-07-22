@@ -22,13 +22,11 @@ export default function DashboardOverview() {
   const [mediaList, setMediaList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Test Simulator Modal state
+  // Live configuration validation state
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [selectedMediaId, setSelectedMediaId] = useState('');
-  const [testComment, setTestComment] = useState('HANUMAN');
-  const [testUsername, setTestUsername] = useState('rahul_dev');
-  const [simulating, setSimulating] = useState(false);
-  const [simResult, setSimResult] = useState<any>(null);
+  const [validating, setValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<any>(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -74,10 +72,10 @@ export default function DashboardOverview() {
     }
   };
 
-  const handleSimulateWebhook = async (e: React.FormEvent) => {
+  const handleValidateConfiguration = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSimulating(true);
-    setSimResult(null);
+    setValidating(true);
+    setValidationResult(null);
 
     try {
       const res = await fetch('/api/automations/test-trigger', {
@@ -85,18 +83,15 @@ export default function DashboardOverview() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mediaId: selectedMediaId,
-          commentText: testComment,
-          commenterUsername: testUsername,
         }),
       });
 
       const data = await res.json();
-      setSimResult(data);
-      fetchDashboardData(); // Refresh counter stats & activity log
+      setValidationResult(data);
     } catch (err: any) {
-      setSimResult({ error: err.message || 'Simulation error' });
+      setValidationResult({ error: err.message || 'Validation error' });
     } finally {
-      setSimulating(false);
+      setValidating(false);
     }
   };
 
@@ -121,7 +116,7 @@ export default function DashboardOverview() {
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-medium text-sm border border-slate-700 transition-all shadow-md"
           >
             <Play className="w-4 h-4 text-emerald-400 fill-emerald-400" />
-            Test Comment Simulator
+            Validate Automation Setup
           </button>
 
           {stats?.connectionStatus === 'CONNECTED' ? (
@@ -237,7 +232,7 @@ export default function DashboardOverview() {
                   }}
                   className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium"
                 >
-                  Test Reel
+                  Validate
                 </button>
               </div>
             </div>
@@ -259,7 +254,7 @@ export default function DashboardOverview() {
 
         {logs.length === 0 ? (
           <div className="text-center py-10 text-slate-500 text-sm">
-            No automation triggers logged yet. Click "Test Comment Simulator" above to test!
+            No live automation triggers have been logged yet.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -313,13 +308,13 @@ export default function DashboardOverview() {
         )}
       </div>
 
-      {/* Test Webhook Simulator Modal */}
+      {/* Live configuration validator */}
       {testModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-950 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Play className="w-5 h-5 text-emerald-400" /> Simulated Webhook Tester
+                <Play className="w-5 h-5 text-emerald-400" /> Automation Configuration Check
               </h3>
               <button
                 onClick={() => setTestModalOpen(false)}
@@ -329,7 +324,7 @@ export default function DashboardOverview() {
               </button>
             </div>
 
-            <form onSubmit={handleSimulateWebhook} className="space-y-4">
+            <form onSubmit={handleValidateConfiguration} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                   Select Reel / Post
@@ -347,60 +342,35 @@ export default function DashboardOverview() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Commenter Handle
-                  </label>
-                  <input
-                    type="text"
-                    value={testUsername}
-                    onChange={(e) => setTestUsername(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-fuchsia-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Test Comment Text
-                  </label>
-                  <input
-                    type="text"
-                    value={testComment}
-                    onChange={(e) => setTestComment(e.target.value)}
-                    placeholder="e.g. HANUMAN or PROMPT"
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-fuchsia-500 font-mono"
-                  />
-                </div>
-              </div>
+              <p className="text-xs text-slate-400">This checks the selected post's real connected-account automation configuration. It does not create a comment or send a DM.</p>
 
               <button
                 type="submit"
-                disabled={simulating}
+                disabled={validating || !selectedMediaId}
                 className="w-full py-2.5 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium text-sm shadow-lg shadow-fuchsia-600/30 transition-all flex items-center justify-center gap-2"
               >
-                {simulating ? 'Processing Webhook Event...' : 'Simulate Instagram Webhook Event'}
+                {validating ? 'Checking configuration...' : 'Check Live Configuration'}
               </button>
             </form>
 
-            {simResult && (
+            {validationResult && (
               <div
                 className={`p-4 rounded-xl text-xs font-mono border space-y-2 ${
-                  simResult.success
+                  validationResult.ready
                     ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
                     : 'bg-rose-950/40 border-rose-800 text-rose-200'
                 }`}
               >
                 <div className="font-bold flex items-center gap-1.5">
-                  {simResult.success ? (
+                  {validationResult.ready ? (
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                   ) : (
                     <AlertCircle className="w-4 h-4 text-rose-400" />
                   )}
-                  {simResult.result?.status}: {simResult.result?.message}
+                  {validationResult.ready ? 'Ready for real Meta comments' : 'Configuration needs attention'}
                 </div>
-                {simResult.result?.automationRunId && (
-                  <div>Run ID: {simResult.result.automationRunId}</div>
-                )}
+                <div>{validationResult.message || validationResult.error}</div>
+                {validationResult.blockers?.map((blocker: string) => <div key={blocker}>• {blocker}</div>)}
               </div>
             )}
           </div>

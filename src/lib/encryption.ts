@@ -5,7 +5,10 @@ const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 
 function getMasterKey(): Buffer {
-  const hexKey = process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const hexKey = process.env.ENCRYPTION_KEY || '';
+  if (!/^[a-fA-F0-9]{64}$/.test(hexKey)) {
+    throw new Error('ENCRYPTION_KEY must be a 64-character hexadecimal value');
+  }
   return Buffer.from(hexKey.slice(0, 64), 'hex');
 }
 
@@ -28,8 +31,7 @@ export function decryptToken(encryptedString: string): string {
   try {
     const parts = encryptedString.split(':');
     if (parts.length !== 3) {
-      // Unencrypted legacy/mock fallback
-      return encryptedString;
+      throw new Error('Stored access token is not encrypted');
     }
     
     const [ivHex, tagHex, encryptedText] = parts;
@@ -45,6 +47,6 @@ export function decryptToken(encryptedString: string): string {
     return decrypted;
   } catch (error) {
     console.error('Failed to decrypt access token:', error);
-    return encryptedString; // Fallback for dev mode
+    throw new Error('Unable to decrypt access token');
   }
 }

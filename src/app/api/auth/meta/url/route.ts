@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MetaAuthService } from '@/services/meta/MetaAuthService';
+import { createOAuthState, requireSessionUser } from '@/lib/auth';
 
-export async function GET(req: NextRequest) {
-  const state = `state_${Date.now()}`;
-  
-  // Dynamically compute the redirect URI based on the request's hostname
-  const host = req.headers.get('host') || 'localhost:3000';
-  const protocol = req.headers.get('x-forwarded-proto') || 'http';
-  const origin = `${protocol}://${host}`;
-  const dynamicRedirectUri = `${origin}/api/auth/meta/callback`;
-
-  const url = MetaAuthService.getOAuthUrl(state, dynamicRedirectUri);
-  return NextResponse.json({ url });
+export async function GET() {
+  try {
+    const user = await requireSessionUser();
+    const appUrl = process.env.APP_URL;
+    if (!appUrl?.startsWith('https://')) throw new Error('APP_URL must be an HTTPS production URL');
+    const state = await createOAuthState(user.userId);
+    return NextResponse.json({ url: MetaAuthService.getOAuthUrl(state, `${appUrl}/api/auth/meta/callback`) });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message === 'UNAUTHORIZED' ? 'Unauthorized' : error.message }, { status: error.message === 'UNAUTHORIZED' ? 401 : 500 });
+  }
 }

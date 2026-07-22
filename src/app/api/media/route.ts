@@ -1,124 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { decryptToken, encryptToken } from '@/lib/encryption';
+import { decryptToken } from '@/lib/encryption';
+import { requireSessionUser } from '@/lib/auth';
 import { InstagramMediaService } from '@/services/meta/InstagramMediaService';
 
 export const dynamic = 'force-dynamic';
+function unauthorized(error: unknown) { return error instanceof Error && error.message === 'UNAUTHORIZED'; }
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const sync = searchParams.get('sync') === 'true';
-
-    let user = await prisma.user.findFirst();
-    if (!user) {
-      user = await prisma.user.create({
-        data: { email: 'admin@stuti.ritesh90.com', passwordHash: 'hash', name: 'Stuti Ritesh' },
-      });
+    const user = await requireSessionUser();
+    const sync = new URL(req.url).searchParams.get('sync') === 'true';
+    const connection = await prisma.metaConnection.findFirst({ where: { userId: user.userId, connectionStatus: 'CONNECTED' } });
+    if (!connection) return NextResponse.json({ media: [], connectionRequired: true });
+    if (sync) {
+      const token = decryptToken(connection.accessTokenEncrypted);
+      const remoteMedia = await InstagramMediaService.fetchMedia(connection.instagramAccountId, token);
+      await Promise.all(remoteMedia.map((item) => prisma.media.upsert({
+        where: { instagramMediaId: item.id },
+        create: { instagramAccountId: connection.instagramAccountId, instagramMediaId: item.id, mediaType: item.media_type, caption: item.caption || null, permalink: item.permalink || null, mediaUrl: item.media_url || null, thumbnailUrl: item.thumbnail_url || null, timestamp: new Date(item.timestamp) },
+        update: { mediaType: item.media_type, caption: item.caption || null, permalink: item.permalink || null, mediaUrl: item.media_url || null, thumbnailUrl: item.thumbnail_url || null, timestamp: new Date(item.timestamp) },
+      })));
     }
-
-    let connection = await prisma.metaConnection.findFirst({
-      where: { connectionStatus: 'CONNECTED' },
-    });
-
-    if (!connection) {
-      if (process.env.META_API_MOCK === 'true') {
-        connection = await prisma.metaConnection.upsert({
-          where: { instagramAccountId: '17841439216724676' },
-          create: {
-            userId: user.id,
-            metaUserId: '1758819892233389',
-            instagramAccountId: '17841439216724676',
-            instagramUsername: 'stuti.ritesh90',
-            accessTokenEncrypted: encryptToken('mock_access_token'),
-            connectionStatus: 'CONNECTED',
-          },
-          update: {
-            connectionStatus: 'CONNECTED',
-          },
-        });
-      } else {
-        return NextResponse.json({ media: [] });
-      }
-    }
-
-    let media = await prisma.media.findMany({
-      where: { instagramAccountId: connection.instagramAccountId },
-      include: { automations: true },
-      orderBy: { timestamp: 'desc' },
-    });
-
-    if (media.length <= 1) {
-      // Seed rich visual post options for @stuti.ritesh90
-      await prisma.media.createMany({
-        data: [
-          {
-            instagramAccountId: connection.instagramAccountId,
-            instagramMediaId: 'all_reels_global',
-            mediaType: 'REEL',
-            caption: '🌟 ALL REELS & POSTS (Global Rule - Applies to Any Post)',
-            permalink: 'https://instagram.com/stuti.ritesh90',
-            thumbnailUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=300&q=80',
-            timestamp: new Date(),
-          },
-          {
-            instagramAccountId: connection.instagramAccountId,
-            instagramMediaId: 'post_hanuman_art_01',
-            mediaType: 'IMAGE',
-            caption: '🖼️ Image Post 1: Hanuman Ji 8K Photorealistic Edit',
-            permalink: 'https://instagram.com/stuti.ritesh90',
-            thumbnailUrl: 'https://images.unsplash.com/photo-1609137144813-7d9921338f24?auto=format&fit=crop&w=300&q=80',
-            timestamp: new Date('2026-07-20T12:00:00Z'),
-          },
-          {
-            instagramAccountId: connection.instagramAccountId,
-            instagramMediaId: 'post_cyberpunk_02',
-            mediaType: 'IMAGE',
-            caption: '🖼️ Image Post 2: Cyberpunk Futuristic AI Artwork',
-            permalink: 'https://instagram.com/stuti.ritesh90',
-            thumbnailUrl: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=300&q=80',
-            timestamp: new Date('2026-07-19T15:30:00Z'),
-          },
-          {
-            instagramAccountId: connection.instagramAccountId,
-            instagramMediaId: 'post_portrait_03',
-            mediaType: 'IMAGE',
-            caption: '🖼️ Image Post 3: Cinematic Dark Portrait Edit',
-            permalink: 'https://instagram.com/stuti.ritesh90',
-            thumbnailUrl: 'https://images.unsplash.com/photo-1542038784456-1ea8e935640e?auto=format&fit=crop&w=300&q=80',
-            timestamp: new Date('2026-07-18T09:15:00Z'),
-          },
-          {
-            instagramAccountId: connection.instagramAccountId,
-            instagramMediaId: 'post_anime_04',
-            mediaType: 'IMAGE',
-            caption: '🖼️ Image Post 4: Anime Style Fantasy Edit',
-            permalink: 'https://instagram.com/stuti.ritesh90',
-            thumbnailUrl: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=300&q=80',
-            timestamp: new Date('2026-07-17T18:20:00Z'),
-          },
-          {
-            instagramAccountId: connection.instagramAccountId,
-            instagramMediaId: 'post_nature_05',
-            mediaType: 'IMAGE',
-            caption: '🖼️ Image Post 5: Golden Lighting Nature Landscape',
-            permalink: 'https://instagram.com/stuti.ritesh90',
-            thumbnailUrl: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=300&q=80',
-            timestamp: new Date('2026-07-16T11:45:00Z'),
-          },
-        ],
-      });
-
-      media = await prisma.media.findMany({
-        where: { instagramAccountId: connection.instagramAccountId },
-        include: { automations: true },
-        orderBy: { timestamp: 'desc' },
-      });
-    }
-
+    const media = await prisma.media.findMany({ where: { instagramAccountId: connection.instagramAccountId }, include: { automations: true }, orderBy: { timestamp: 'desc' } });
     return NextResponse.json({ media });
-  } catch (error: any) {
+  } catch (error) {
+    if (unauthorized(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     console.error('Media fetch error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to fetch Instagram media. Reconnect your account if the problem persists.' }, { status: 502 });
   }
 }

@@ -1,163 +1,32 @@
-import { encryptToken } from '@/lib/encryption';
-
-export interface ConnectedInstagramAccount {
-  instagramAccountId: string;
-  instagramUsername: string;
-  profilePictureUrl?: string;
-  facebookPageId?: string;
-  accessToken: string;
-  expiresInSeconds?: number;
-}
+export interface ConnectedInstagramAccount { instagramAccountId: string; instagramUsername: string; profilePictureUrl?: string; facebookPageId?: string; accessToken: string; expiresInSeconds?: number; }
 
 export class MetaAuthService {
-  private static graphApiVersion = process.env.META_GRAPH_API_VERSION || 'v19.0';
-  private static appId = process.env.META_APP_ID || '';
-  private static appSecret = process.env.META_APP_SECRET || '';
-  private static redirectUri = process.env.META_REDIRECT_URI || 'http://localhost:3000/api/auth/meta/callback';
-  private static configId = process.env.META_CONFIG_ID || '';
-
-  public static getOAuthUrl(state: string, customRedirectUri?: string): string {
-    const redirect = customRedirectUri || this.redirectUri;
-
-    // Use explicit scopes (NOT config_id) — Business Login config_id causes
-    // /me/accounts to return empty pages. Standard scope-based login works correctly.
-    const scopes = [
-      'instagram_basic',
-      'instagram_manage_comments',
-      'pages_show_list',
-      'pages_read_engagement',
-    ].join(',');
-
-    return `https://www.facebook.com/${this.graphApiVersion}/dialog/oauth?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
-      redirect
-    )}&scope=${scopes}&response_type=code&state=${state}`;
+  private static get config() {
+    const graphApiVersion = process.env.META_GRAPH_API_VERSION; const appId = process.env.META_APP_ID; const appSecret = process.env.META_APP_SECRET;
+    if (!graphApiVersion || !appId || !appSecret) throw new Error('Meta OAuth is not configured');
+    return { graphApiVersion, appId, appSecret };
   }
 
-  public static async handleOAuthCallback(code: string, customRedirectUri?: string): Promise<ConnectedInstagramAccount> {
-    if (process.env.META_API_MOCK === 'true') {
-      console.log('🤖 [META MOCK MODE] Simulating Meta OAuth Callback Exchange');
-      return {
-        instagramAccountId: 'ig_mock_17841400000000001',
-        instagramUsername: 'ritesh_tech_creator',
-        profilePictureUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
-        facebookPageId: 'fb_mock_page_99887766',
-        accessToken: 'mock_long_lived_access_token_xyz987654321',
-        expiresInSeconds: 5184000, // 60 days
-      };
-    }
+  public static getOAuthUrl(state: string, redirectUri: string): string {
+    const { graphApiVersion, appId } = this.config;
+    const scopes = ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata'].join(',');
+    return `https://www.facebook.com/${graphApiVersion}/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${encodeURIComponent(state)}`;
+  }
 
-    const redirect = customRedirectUri || this.redirectUri;
-
-    // 1. Exchange auth code for short-lived user access token
-    const tokenUrl = `https://graph.facebook.com/${this.graphApiVersion}/oauth/access_token?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
-      redirect
-    )}&client_secret=${this.appSecret}&code=${code}`;
-
-    const tokenRes = await fetch(tokenUrl);
-    const tokenData = await tokenRes.json();
-
-    if (!tokenRes.ok || !tokenData.access_token) {
-      throw new Error(`Meta Token Exchange Failed: ${tokenData.error?.message || JSON.stringify(tokenData)}`);
-    }
-
-    // 2. Exchange short-lived token for 60-day long-lived access token
-    const longLivedUrl = `https://graph.facebook.com/${this.graphApiVersion}/oauth/access_token?grant_type=fb_exchange_token&client_id=${this.appId}&client_secret=${this.appSecret}&fb_exchange_token=${tokenData.access_token}`;
-    const llRes = await fetch(longLivedUrl);
-    const llData = await llRes.json();
-    const longLivedToken = llData.access_token || tokenData.access_token;
-
-    // 3. Try Strategy A: Fetch via Facebook Pages → Instagram Business Account
-    const pagesUrl = `https://graph.facebook.com/${this.graphApiVersion}/me/accounts?fields=id,name,instagram_business_account{id,username,profile_picture_url}&access_token=${longLivedToken}`;
-    const pagesRes = await fetch(pagesUrl);
-    const pagesData = await pagesRes.json();
-
-    if (pagesRes.ok && pagesData.data && pagesData.data.length > 0) {
-      const pageWithIg = pagesData.data.find((p: any) => p.instagram_business_account?.id);
-      if (pageWithIg) {
-        const igAccount = pageWithIg.instagram_business_account;
-        return {
-          instagramAccountId: igAccount.id,
-          instagramUsername: igAccount.username || 'instagram_account',
-          profilePictureUrl: igAccount.profile_picture_url,
-          facebookPageId: pageWithIg.id,
-          accessToken: longLivedToken,
-          expiresInSeconds: llData.expires_in || 5184000,
-        };
-      }
-    }
-
-    // 4. Strategy B: Try fetching Instagram accounts directly linked to user
-    const igAccountsUrl = `https://graph.facebook.com/${this.graphApiVersion}/me?fields=id,name,instagram_business_account{id,username,profile_picture_url}&access_token=${longLivedToken}`;
-    const igRes = await fetch(igAccountsUrl);
-    const igData = await igRes.json();
-
-    if (igRes.ok && igData.instagram_business_account?.id) {
-      const igAccount = igData.instagram_business_account;
-      return {
-        instagramAccountId: igAccount.id,
-        instagramUsername: igAccount.username || 'instagram_account',
-        profilePictureUrl: igAccount.profile_picture_url,
-        facebookPageId: igData.id,
-        accessToken: longLivedToken,
-        expiresInSeconds: llData.expires_in || 5184000,
-      };
-    }
-
-    // 5. Strategy C: Try /me/instagram_accounts
-    const igUserUrl = `https://graph.facebook.com/${this.graphApiVersion}/me/instagram_accounts?fields=id,username,profile_picture_url&access_token=${longLivedToken}`;
-    const igUserRes = await fetch(igUserUrl);
-    const igUserData = await igUserRes.json();
-
-    if (igUserRes.ok && igUserData.data && igUserData.data.length > 0) {
-      const igAccount = igUserData.data[0];
-      return {
-        instagramAccountId: igAccount.id,
-        instagramUsername: igAccount.username || 'instagram_account',
-        profilePictureUrl: igAccount.profile_picture_url,
-        facebookPageId: undefined,
-        accessToken: longLivedToken,
-        expiresInSeconds: llData.expires_in || 5184000,
-      };
-    }
-
-    // 6. Strategy E: Direct Page ID fetch (for Business Manager managed pages)
-    // When pages are under Meta Business Manager, /me/accounts returns empty.
-    // If META_FACEBOOK_PAGE_ID is set, bypass discovery and fetch directly.
-    const knownPageId = process.env.META_FACEBOOK_PAGE_ID;
-    if (knownPageId) {
-      const directPageUrl = `https://graph.facebook.com/${this.graphApiVersion}/${knownPageId}?fields=id,name,instagram_business_account{id,username,profile_picture_url}&access_token=${longLivedToken}`;
-      const directPageRes = await fetch(directPageUrl);
-      const directPageData = await directPageRes.json();
-
-      if (directPageRes.ok && directPageData.instagram_business_account?.id) {
-        const igAccount = directPageData.instagram_business_account;
-        return {
-          instagramAccountId: igAccount.id,
-          instagramUsername: igAccount.username || 'instagram_account',
-          profilePictureUrl: igAccount.profile_picture_url,
-          facebookPageId: knownPageId,
-          accessToken: longLivedToken,
-          expiresInSeconds: llData.expires_in || 5184000,
-        };
-      }
-    }
-
-    // 7. Strategy F: Fetch /me to identify which Facebook user logged in (debug)
-    const meUrl = `https://graph.facebook.com/${this.graphApiVersion}/me?fields=id,name,email&access_token=${longLivedToken}`;
-    const meRes = await fetch(meUrl);
-    const meData = await meRes.json();
-
-    // All strategies failed - throw detailed error with user identity
-    const debugInfo = {
-      loggedInFacebookUser: meData,
-      knownPageIdUsed: knownPageId || 'NOT SET - add META_FACEBOOK_PAGE_ID to env vars',
-      pagesStatus: pagesRes.status,
-      pagesData: pagesData,
-      igDirectStatus: igRes.status,
-      igDirectData: igData,
-      igUserStatus: igUserRes.status,
-      igUserData: igUserData,
-    };
-    throw new Error(`Instagram account not found. All strategies failed. Debug: ${JSON.stringify(debugInfo)}`);
+  public static async handleOAuthCallback(code: string, redirectUri: string): Promise<ConnectedInstagramAccount> {
+    const { graphApiVersion, appId, appSecret } = this.config;
+    const tokenResponse = await fetch(`https://graph.facebook.com/${graphApiVersion}/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${encodeURIComponent(code)}`, { cache: 'no-store' });
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData.access_token) throw new Error(tokenData.error?.message || 'Meta token exchange failed');
+    const longLivedResponse = await fetch(`https://graph.facebook.com/${graphApiVersion}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${tokenData.access_token}`, { cache: 'no-store' });
+    const longLivedData = await longLivedResponse.json(); const userToken = longLivedData.access_token || tokenData.access_token;
+    const pageId = process.env.META_FACEBOOK_PAGE_ID;
+    const pageUrl = pageId ? `https://graph.facebook.com/${graphApiVersion}/${pageId}?fields=id,instagram_business_account{id,username,profile_picture_url},access_token` : `https://graph.facebook.com/${graphApiVersion}/me/accounts?fields=id,instagram_business_account{id,username,profile_picture_url},access_token`;
+    const pagesResponse = await fetch(pageUrl, { headers: { Authorization: `Bearer ${userToken}` }, cache: 'no-store' });
+    const pagesData = await pagesResponse.json();
+    const page = pageId ? pagesData : pagesData.data?.find((candidate: any) => candidate.instagram_business_account?.id && candidate.access_token);
+    if (!pagesResponse.ok || !page?.instagram_business_account?.id || !page.access_token) throw new Error(pagesData.error?.message || 'No Facebook Page with a connected Instagram professional account was found');
+    const account = page.instagram_business_account;
+    return { instagramAccountId: account.id, instagramUsername: account.username || account.id, profilePictureUrl: account.profile_picture_url, facebookPageId: page.id, accessToken: page.access_token, expiresInSeconds: longLivedData.expires_in };
   }
 }

@@ -1,14 +1,14 @@
 import crypto from 'crypto';
 
 export class WebhookService {
-  private static verifyToken = process.env.META_VERIFY_TOKEN || 'my_custom_webhook_verify_token_123';
-  private static appSecret = process.env.META_APP_SECRET || 'mock_meta_app_secret_12345';
+  private static verifyToken = process.env.META_VERIFY_TOKEN || '';
+  private static appSecret = process.env.META_APP_SECRET || '';
 
   /**
    * Validates Meta Webhook Verification Challenge (GET)
    */
   public static verifyChallenge(mode: string | null, token: string | null, challenge: string | null): string | null {
-    if (mode === 'subscribe' && token === this.verifyToken) {
+    if (this.verifyToken && mode === 'subscribe' && token === this.verifyToken && challenge) {
       return challenge;
     }
     return null;
@@ -18,13 +18,11 @@ export class WebhookService {
    * Validates x-hub-signature-256 header using HMAC-SHA256
    */
   public static verifySignature(rawBody: string, signatureHeader: string | null): boolean {
-    if (process.env.META_API_MOCK === 'true') {
-      return true; // Bypass signature check in dev mock mode
-    }
-
     if (!signatureHeader || !signatureHeader.startsWith('sha256=')) {
       return false;
     }
+
+    if (!this.appSecret) return false;
 
     const expectedSignature = signatureHeader.split('sha256=')[1];
     const computedHmac = crypto
@@ -66,13 +64,15 @@ export class WebhookService {
         for (const change of entry.changes) {
           if (change.field === 'comments' && change.value) {
             const val = change.value;
+            const mediaId = val.media?.id || val.media_id;
+            if (typeof val.id !== 'string' || typeof mediaId !== 'string' || typeof val.from?.id !== 'string') continue;
             events.push({
               instagramAccountId: val.recipient_id || instagramAccountId,
-              mediaId: val.media?.id || val.media_id,
+              mediaId,
               commentId: val.id,
-              commenterId: val.from?.id || 'ig_user_unknown',
-              commenterUsername: val.from?.username || 'instagram_user',
-              commentText: val.text || '',
+              commenterId: val.from.id,
+              commenterUsername: typeof val.from.username === 'string' ? val.from.username : '',
+              commentText: typeof val.text === 'string' ? val.text : '',
               rawPayload: payload,
             });
           }

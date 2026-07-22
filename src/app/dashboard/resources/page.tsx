@@ -113,7 +113,7 @@ export default function ResourcesPage() {
                   type="url"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://example.com/file.pdf"
+                  placeholder="https://your-domain.example/file.pdf"
                   required
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-fuchsia-500"
                 />
