@@ -104,9 +104,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </span>
               )}
             </div>
-            <p className="text-xs font-mono text-slate-300 truncate">
-              @{stats?.instagramUsername || 'ritesh_tech_creator'}
-            </p>
+            {stats?.instagramUsername ? (
+              <p className="text-xs font-mono text-slate-300 truncate">
+                @{stats.instagramUsername}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 italic">No account connected</p>
+            )}
           </div>
 
           <div className="flex items-center justify-between px-2 text-[11px] text-slate-500">
