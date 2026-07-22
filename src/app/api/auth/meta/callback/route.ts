@@ -191,7 +191,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(`${process.env.APP_URL || 'http://localhost:3000'}/dashboard?connected=true`);
+    return NextResponse.redirect(`${origin}/dashboard?connected=true`);
   } catch (error: any) {
     console.error('Error handling Meta OAuth Callback:', error);
     try {
@@ -210,7 +210,7 @@ export async function GET(req: NextRequest) {
       console.error('Failed to log auth error to DB:', logDbError);
     }
     return NextResponse.redirect(
-      `${process.env.APP_URL || 'http://localhost:3000'}/dashboard?error=${encodeURIComponent(error.message)}`
+      `${origin}/dashboard?error=${encodeURIComponent(error.message)}`
     );
   }
 }
