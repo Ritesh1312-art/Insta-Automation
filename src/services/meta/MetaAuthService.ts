@@ -24,10 +24,8 @@ export class MetaAuthService {
     const scopes = [
       'instagram_basic',
       'instagram_manage_comments',
-      'instagram_manage_messages',
       'pages_show_list',
       'pages_read_engagement',
-      'pages_messaging',
     ].join(',');
 
     return `https://www.facebook.com/${this.graphApiVersion}/dialog/oauth?client_id=${this.appId}&redirect_uri=${encodeURIComponent(
