@@ -8,13 +8,16 @@ import { InstagramMediaService } from '@/services/meta/InstagramMediaService';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const appUrl = process.env.APP_URL;
+  let appUrl = process.env.APP_URL;
+  if (!appUrl || !appUrl.startsWith('https://')) {
+    appUrl = new URL(req.url).origin;
+  }
   let userId: string | null = null;
   try {
     const params = new URL(req.url).searchParams;
     userId = params.get('state') ? await verifyOAuthState(params.get('state')!) : null;
     const code = params.get('code');
-    if (!appUrl?.startsWith('https://') || !userId || !code) throw new Error('Invalid or expired Meta authorization response');
+    if (!userId || !code) throw new Error('Invalid or expired Meta authorization response');
     const redirectUri = `${appUrl}/api/auth/meta/callback`;
     const account = await MetaAuthService.handleOAuthCallback(code, redirectUri);
     const existingConnection = await prisma.metaConnection.findUnique({ where: { instagramAccountId: account.instagramAccountId } });

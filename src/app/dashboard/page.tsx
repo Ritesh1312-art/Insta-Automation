@@ -21,6 +21,7 @@ export default function DashboardOverview() {
   const [logs, setLogs] = useState<any[]>([]);
   const [mediaList, setMediaList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Live configuration validation state
   const [testModalOpen, setTestModalOpen] = useState(false);
@@ -30,6 +31,11 @@ export default function DashboardOverview() {
 
   useEffect(() => {
     fetchDashboardData();
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('error');
+    if (err === 'meta_connection_failed') {
+      setErrorMessage('meta_connection_failed');
+    }
   }, []);
 
   const fetchDashboardData = async () => {
@@ -133,6 +139,46 @@ export default function DashboardOverview() {
           )}
         </div>
       </div>
+
+      {/* Connection Failure Alert Box */}
+      {errorMessage === 'meta_connection_failed' && (
+        <div className="bg-rose-950/40 border border-rose-800 p-6 rounded-2xl space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-bold text-white text-base">⚠️ Instagram Connection Loop Detected!</h3>
+              <p className="text-slate-300 text-xs mt-1.5 leading-relaxed">
+                Meta (Facebook) ne is login attempt mein **koyi bhi Facebook Page ya Instagram Account return nahi kiya**. 
+                Yeh tab hota hai jab aap login dialog popup mein **apne Page aur Instagram Account ke checkboxes ko tick karna bhool jaate hain**.
+              </p>
+            </div>
+          </div>
+          
+          <div className="bg-slate-950/60 p-4 rounded-xl border border-rose-950 text-xs space-y-2.5 text-slate-300">
+            <h4 className="font-semibold text-rose-400">Fix karne ke 3 simple steps:</h4>
+            <ol className="list-decimal pl-4 space-y-2">
+              <li>
+                <strong>Facebook settings se App clear karein (Recommended):</strong><br />
+                Apne Facebook account par jayein → <strong>Settings & Privacy</strong> → <strong>Settings</strong> → <strong>Business Integrations</strong>. Niche list mein se <strong>"InstaDM Auto"</strong> (ya aapka app name) ko <strong>Remove</strong> kar dein.
+              </li>
+              <li>
+                <strong>"Edit Settings" par click karein:</strong><br />
+                Iske baad wapas upar <strong>"Connect Instagram Account"</strong> button par click karein. Jab Facebook popup aaye, to <strong>"Edit Settings"</strong> ya <strong>"Reconnect"</strong> par click karein.
+              </li>
+              <li>
+                <strong>Checkboxes ko tick karein:</strong><br />
+                Wizards mein clear check boxes aayenge:
+                <ul className="list-disc pl-4 mt-1 space-y-1 text-slate-400">
+                  <li>Apne us <strong>Instagram Creator/Business Account</strong> ko tick karein jise connect karna hai.</li>
+                  <li>Apne us <strong>Facebook Page</strong> ko select karein jo aapke Instagram se connected hai.</li>
+                  <li>Saari requested permissions ko <strong>"Yes"</strong> par select karein.</li>
+                </ul>
+              </li>
+            </ol>
+          </div>
+        </div>
+      )}
+
 
       {/* Metrics Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
