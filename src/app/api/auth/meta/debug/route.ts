@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
         META_APP_SECRET: process.env.META_APP_SECRET ? 'Configured' : 'Missing',
         META_FACEBOOK_PAGE_ID: process.env.META_FACEBOOK_PAGE_ID || 'Not Set',
         META_GRAPH_API_VERSION: process.env.META_GRAPH_API_VERSION || 'Not Set',
+        SETUP_TOKEN: process.env.SETUP_TOKEN || 'Not Set',
       }
     });
   } catch (error: any) {
