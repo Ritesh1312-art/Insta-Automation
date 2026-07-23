@@ -72,47 +72,36 @@ export class AutomationEngine {
     }
     if (isNewRun) await prisma.automation.update({ where: { id: automation.id }, data: { totalTriggers: { increment: 1 }, lastTriggeredAt: new Date() } });
     
-    // Construct the follower-gating template card
-    const templatePayload = {
-      attachment: {
-        type: 'template',
-        payload: {
-          template_type: 'generic',
-          elements: [
-            {
-              title: 'Unlock Your Prompt 🎁',
-              subtitle: `Follow @${connection.instagramUsername} to unlock this prompt.`,
-              buttons: [
-                {
-                  type: 'web_url',
-                  url: `https://instagram.com/${connection.instagramUsername}`,
-                  title: '1. Follow to Unlock'
-                },
-                {
-                  type: 'postback',
-                  title: '2. Get Prompt 🚀',
-                  payload: `GET_PROMPT_POSTBACK_${automation.id}`
-                }
-              ]
-            }
-          ]
-        }
-      }
-    };
+    // Format DM message text (replacing {{username}} and {{resource_url}} placeholders)
+    const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
+    const dmText = automation.dmMessageTemplate
+      .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
+      .replace(/\{\{resource_url\}\}/g, resourceValue);
 
-    const dm = await InstagramMessagingService.sendPrivateTemplateReply({
+    // 1. Send Private Reply DM to commenter via Meta Graph API
+    const dm = await InstagramMessagingService.sendPrivateReply({
       instagramAccountId: event.instagramAccountId,
       commentId: event.commentId,
-      templatePayload,
-      accessToken: decryptToken(connection.accessTokenEncrypted)
+      messageText: dmText,
+      accessToken: decryptToken(connection.accessTokenEncrypted),
     });
-    if (!dm.success) return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed');
 
-    let publicReplyStatus = 'SKIPPED'; let publicReplyId: string | undefined;
-    if (automation.publicReplyEnabled && automation.publicReplyTemplates.length) {
+    // 2. Send Public Comment Reply if enabled
+    let publicReplyStatus = 'SKIPPED';
+    let publicReplyId: string | undefined;
+    if (automation.publicReplyEnabled && automation.publicReplyTemplates.length > 0) {
       const reply = automation.publicReplyTemplates[Math.floor(Math.random() * automation.publicReplyTemplates.length)];
-      const publicReply = await InstagramMessagingService.sendPublicReply({ commentId: event.commentId, messageText: reply, accessToken: decryptToken(connection.accessTokenEncrypted) });
-      publicReplyStatus = publicReply.success ? 'SENT' : 'FAILED'; publicReplyId = publicReply.responseId;
+      const publicReply = await InstagramMessagingService.sendPublicReply({
+        commentId: event.commentId,
+        messageText: reply,
+        accessToken: decryptToken(connection.accessTokenEncrypted),
+      });
+      publicReplyStatus = publicReply.success ? 'SENT' : 'FAILED';
+      publicReplyId = publicReply.responseId;
+    }
+
+    if (!dm.success) {
+      return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed');
     }
     await prisma.$transaction([
       prisma.automationRun.update({ where: { id: run.id }, data: { status: 'API_ACCEPTED', dmStatus: 'SENT', dmResponseId: dm.responseId, publicReplyStatus, publicReplyId, executedAt: new Date() } }),

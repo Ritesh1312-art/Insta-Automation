@@ -1,14 +1,18 @@
 import crypto from 'crypto';
 
 export class WebhookService {
-  private static verifyToken = process.env.META_VERIFY_TOKEN || '';
-  private static appSecret = process.env.META_APP_SECRET || '';
+  private static get verifyToken() {
+    return process.env.META_VERIFY_TOKEN || 'my_custom_webhook_verify_token_123';
+  }
+  private static get appSecret() {
+    return process.env.META_APP_SECRET || '';
+  }
 
   /**
    * Validates Meta Webhook Verification Challenge (GET)
    */
   public static verifyChallenge(mode: string | null, token: string | null, challenge: string | null): string | null {
-    if (this.verifyToken && mode === 'subscribe' && token === this.verifyToken && challenge) {
+    if (mode === 'subscribe' && token === this.verifyToken && challenge) {
       return challenge;
     }
     return null;
