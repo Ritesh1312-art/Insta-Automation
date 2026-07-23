@@ -16,6 +16,7 @@ import {
   X,
   AlertTriangle,
   CheckCircle2,
+  LogOut,
 } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -36,6 +37,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
     } catch (err) {
       console.error('Failed to fetch stats:', err);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!confirm('Are you sure you want to log out?')) return;
+    try {
+      const res = await fetch('/api/auth/logout', { method: 'POST' });
+      if (res.ok) {
+        window.location.href = '/login';
+      } else {
+        alert('Failed to log out');
+      }
+    } catch (err) {
+      alert('Error logging out');
     }
   };
 
@@ -113,6 +128,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </div>
 
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-rose-950/20 border border-rose-900/30 text-rose-400 hover:bg-rose-950/40 text-xs font-semibold transition-all"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Log Out
+          </button>
+
           <div className="flex items-center justify-between px-2 text-[11px] text-slate-500">
             <span className="flex items-center gap-1">
               <ShieldCheck className="w-3 h-3 text-emerald-500" /> HMAC Signature Verified
@@ -157,6 +179,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </Link>
             );
           })}
+
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-rose-950/20 border border-rose-900/30 text-rose-400 text-sm font-medium transition-all"
+          >
+            <LogOut className="w-4 h-4" /> Log Out
+          </button>
         </div>
       )}
 
