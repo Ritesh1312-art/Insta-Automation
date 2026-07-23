@@ -15,10 +15,15 @@ export async function GET(req: NextRequest) {
       take: 5,
     });
 
+    const users = await prisma.user.findMany({
+      select: { id: true, email: true, role: true }
+    });
+
     return NextResponse.json({
       success: true,
       logs,
       connections,
+      users,
       env: {
         APP_URL: process.env.APP_URL || 'Not Set',
         META_APP_ID: process.env.META_APP_ID ? 'Configured' : 'Missing',
