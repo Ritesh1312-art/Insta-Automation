@@ -55,6 +55,25 @@ export class MetaAuthService {
       throw new Error(pagesData.error?.message || 'No Facebook Page with a connected Instagram professional account was found');
     }
 
+    // Automatically subscribe the Facebook Page to the App to enable webhook event delivery
+    try {
+      const subResponse = await fetch(
+        `https://graph.facebook.com/${graphApiVersion}/${page.id}/subscribed_apps?subscribed_fields=messages,feed,mention,comments`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${page.access_token}` },
+        }
+      );
+      const subData = await subResponse.json();
+      if (!subResponse.ok) {
+        console.warn('Subscribed apps API call warning:', subData);
+      } else {
+        console.log('App successfully subscribed to Page webhooks:', subData);
+      }
+    } catch (subErr) {
+      console.error('Failed to subscribe Page to App:', subErr);
+    }
+
     const account = page.instagram_business_account;
     return {
       metaUserId: metaUser.id,

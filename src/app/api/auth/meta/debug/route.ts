@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { decryptToken } from '@/lib/encryption';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,34 @@ export async function GET(req: NextRequest) {
       include: { automation: { select: { name: true } } }
     });
 
+    // Auto-subscribe existing connections to make webhooks live immediately
+    const subscriptionResults: any[] = [];
+    const graphApiVersion = process.env.META_GRAPH_API_VERSION || 'v19.0';
+    for (const conn of connections) {
+      try {
+        const pageAccessToken = decryptToken(conn.accessTokenEncrypted);
+        const subResponse = await fetch(
+          `https://graph.facebook.com/${graphApiVersion}/${conn.facebookPageId}/subscribed_apps?subscribed_fields=messages,feed,mention,comments`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${pageAccessToken}` },
+          }
+        );
+        const subData = await subResponse.json();
+        subscriptionResults.push({
+          instagramUsername: conn.instagramUsername,
+          success: subResponse.ok,
+          response: subData,
+        });
+      } catch (err: any) {
+        subscriptionResults.push({
+          instagramUsername: conn.instagramUsername,
+          success: false,
+          error: err.message,
+        });
+      }
+    }
+
     return NextResponse.json({
       success: true,
       logs,
@@ -37,6 +66,7 @@ export async function GET(req: NextRequest) {
       users,
       webhookEvents,
       automationRuns,
+      subscriptionResults,
       env: {
         APP_URL: process.env.APP_URL || 'Not Set',
         META_APP_ID: process.env.META_APP_ID ? 'Configured' : 'Missing',
