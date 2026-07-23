@@ -4,7 +4,7 @@ import { requireSessionUser } from '@/lib/auth';
 
 const statuses = new Set(['DRAFT', 'ACTIVE', 'PAUSED', 'ARCHIVED']);
 const triggerTypes = new Set(['KEYWORD', 'ANY_COMMENT']);
-const matchingModes = new Set(['EXACT', 'CONTAINS', 'STARTS_WITH']);
+const matchingModes = new Set(['EXACT', 'CONTAINS', 'STARTS_WITH', 'CASE_SENSITIVE']);
 
 function unauthorized(error: unknown) {
   return error instanceof Error && error.message === 'UNAUTHORIZED';

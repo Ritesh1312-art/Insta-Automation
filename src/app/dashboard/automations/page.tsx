@@ -14,6 +14,7 @@ export default function AutomationsPage() {
   const [promptContent, setPromptContent] = useState('');
   const [keywordsText, setKeywordsText] = useState('PROMPT');
   const [customPostName, setCustomPostName] = useState('');
+  const [triggerOption, setTriggerOption] = useState('EXACT'); // EXACT, CASE_SENSITIVE, ANY_COMMENT
 
   useEffect(() => {
     fetchData();
@@ -57,10 +58,19 @@ export default function AutomationsPage() {
 
   const handleCreateAutomation = async (e: React.FormEvent) => {
     e.preventDefault();
-    const keywords = keywordsText
-      .split('\n')
-      .map((k) => k.trim())
-      .filter((k) => k.length > 0);
+    const triggerType = triggerOption === 'ANY_COMMENT' ? 'ANY_COMMENT' : 'KEYWORD';
+    const matchingMode = triggerOption === 'ANY_COMMENT' ? 'CONTAINS' : triggerOption;
+    const keywords = triggerType === 'ANY_COMMENT'
+      ? []
+      : keywordsText
+          .split('\n')
+          .map((k) => k.trim())
+          .filter((k) => k.length > 0);
+
+    if (triggerType === 'KEYWORD' && keywords.length === 0) {
+      alert('At least one keyword is required');
+      return;
+    }
 
     const selectedMediaObj = mediaList.find((m) => m.id === mediaId);
     const autoName = customPostName || selectedMediaObj?.caption?.slice(0, 35) || 'Image Prompt Automation';
@@ -74,9 +84,9 @@ export default function AutomationsPage() {
         body: JSON.stringify({
           name: autoName,
           mediaId: mediaId || null,
-          triggerType: 'KEYWORD',
-          matchingMode: 'CONTAINS',
-          keywords: keywords.length > 0 ? keywords : ['PROMPT'],
+          triggerType,
+          matchingMode,
+          keywords: triggerType === 'KEYWORD' ? keywords : [],
           dmMessageTemplate,
           publicReplyEnabled: true,
           publicReplyTemplates: ['Sent! Check DMs 📩', 'Done! Check your inbox 🚀'],
@@ -156,9 +166,13 @@ export default function AutomationsPage() {
                     </span>
                     <span>•</span>
                     <span>
-                      Trigger Word:{' '}
-                      <strong className="text-fuchsia-400 uppercase font-mono">
-                        {auto.keywords.join(', ') || 'PROMPT'}
+                      Trigger Mode:{' '}
+                      <strong className="text-fuchsia-400 font-medium">
+                        {auto.triggerType === 'ANY_COMMENT'
+                          ? 'Any Comment'
+                          : auto.matchingMode === 'CASE_SENSITIVE'
+                          ? `Case-Sensitive (${auto.keywords.join(', ')})`
+                          : `Exact Match (${auto.keywords.join(', ')})`}
                       </strong>
                     </span>
                   </div>
@@ -246,17 +260,47 @@ export default function AutomationsPage() {
                 </div>
               </div>
 
-              {/* STEP 2: Trigger Keyword */}
-              <div className="pt-2 border-t border-slate-800">
-                <label className="block text-slate-300 font-semibold mb-1">2️⃣ Trigger Keyword</label>
-                <input
-                  type="text"
-                  value={keywordsText}
-                  onChange={(e) => setKeywordsText(e.target.value)}
-                  placeholder="PROMPT"
-                  required
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-fuchsia-500"
-                />
+              {/* STEP 2: Trigger Mode & Keyword */}
+              <div className="pt-2 border-t border-slate-800 space-y-3">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1.5">2️⃣ Trigger Mode</label>
+                  <select
+                    value={triggerOption}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTriggerOption(val);
+                      if (val === 'ANY_COMMENT') {
+                        setKeywordsText('');
+                      } else if (keywordsText === '') {
+                        setKeywordsText('PROMPT');
+                      }
+                    }}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-fuchsia-500 text-xs font-medium"
+                  >
+                    <option value="EXACT">Exact Match (Case-Insensitive)</option>
+                    <option value="CASE_SENSITIVE">Case-Sensitive Match</option>
+                    <option value="ANY_COMMENT">Any Comment (Every comment triggers)</option>
+                  </select>
+                </div>
+
+                {triggerOption !== 'ANY_COMMENT' && (
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Trigger Keyword</label>
+                    <input
+                      type="text"
+                      value={keywordsText}
+                      onChange={(e) => setKeywordsText(e.target.value)}
+                      placeholder="PROMPT"
+                      required
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-fuchsia-500"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      {triggerOption === 'EXACT'
+                        ? 'Comment will match regardless of uppercase, lowercase, emojis or punctuation.'
+                        : 'Comment must match the exact capitalization/case of your keyword.'}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* STEP 3: Dedicated Prompt Text Box */}

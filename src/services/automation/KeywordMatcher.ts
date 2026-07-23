@@ -1,4 +1,4 @@
-export type MatchingMode = 'EXACT' | 'CONTAINS' | 'STARTS_WITH';
+export type MatchingMode = 'EXACT' | 'CONTAINS' | 'STARTS_WITH' | 'CASE_SENSITIVE';
 
 export class KeywordMatcher {
   /**
@@ -34,20 +34,26 @@ export class KeywordMatcher {
     const normalizedComment = this.normalizeText(commentText);
 
     for (const rawKeyword of keywords) {
-      const normalizedKeyword = this.normalizeText(rawKeyword);
-      if (!normalizedKeyword) continue;
+      if (mode === 'CASE_SENSITIVE') {
+        if (commentText.trim() === rawKeyword.trim()) {
+          return { matched: true, matchedKeyword: rawKeyword };
+        }
+      } else {
+        const normalizedKeyword = this.normalizeText(rawKeyword);
+        if (!normalizedKeyword) continue;
 
-      if (mode === 'EXACT') {
-        if (normalizedComment === normalizedKeyword) {
-          return { matched: true, matchedKeyword: rawKeyword };
-        }
-      } else if (mode === 'CONTAINS') {
-        if (normalizedComment.includes(normalizedKeyword)) {
-          return { matched: true, matchedKeyword: rawKeyword };
-        }
-      } else if (mode === 'STARTS_WITH') {
-        if (normalizedComment.startsWith(normalizedKeyword)) {
-          return { matched: true, matchedKeyword: rawKeyword };
+        if (mode === 'EXACT') {
+          if (normalizedComment === normalizedKeyword) {
+            return { matched: true, matchedKeyword: rawKeyword };
+          }
+        } else if (mode === 'CONTAINS') {
+          if (normalizedComment.includes(normalizedKeyword)) {
+            return { matched: true, matchedKeyword: rawKeyword };
+          }
+        } else if (mode === 'STARTS_WITH') {
+          if (normalizedComment.startsWith(normalizedKeyword)) {
+            return { matched: true, matchedKeyword: rawKeyword };
+          }
         }
       }
     }

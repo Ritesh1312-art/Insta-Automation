@@ -78,6 +78,20 @@ export default function DashboardOverview() {
     }
   };
 
+  const handleDisconnectMeta = async () => {
+    if (!confirm('Are you sure you want to disconnect your Instagram account?')) return;
+    try {
+      const res = await fetch('/api/auth/meta/disconnect', { method: 'POST' });
+      if (res.ok) {
+        fetchDashboardData();
+      } else {
+        alert('Failed to disconnect account');
+      }
+    } catch (err) {
+      alert('Error disconnecting account');
+    }
+  };
+
   const handleValidateConfiguration = async (e: React.FormEvent) => {
     e.preventDefault();
     setValidating(true);
@@ -126,8 +140,16 @@ export default function DashboardOverview() {
           </button>
 
           {stats?.connectionStatus === 'CONNECTED' ? (
-            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-medium">
-              <CheckCircle2 className="w-4 h-4" /> Connected as @{stats?.instagramUsername}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-medium">
+                <CheckCircle2 className="w-4 h-4" /> Connected as @{stats?.instagramUsername}
+              </div>
+              <button
+                onClick={handleDisconnectMeta}
+                className="px-4 py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-sm font-medium transition-all"
+              >
+                Disconnect
+              </button>
             </div>
           ) : (
             <button

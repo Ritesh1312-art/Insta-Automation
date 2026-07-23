@@ -48,9 +48,8 @@ export class AutomationEngine {
     const automations = await prisma.automation.findMany({
       where: { instagramAccountId: event.instagramAccountId, status: 'ACTIVE', OR: [{ mediaId: media.id }, { mediaId: null }] }, include: { resource: true },
     });
-    let automation = automations.find((candidate) => candidate.triggerType === 'KEYWORD' && KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, 'KEYWORD').matched);
-    let matchedKeyword = automation ? KeywordMatcher.isMatch(event.commentText || '', automation.keywords, automation.matchingMode as any, 'KEYWORD').matchedKeyword || '' : '';
-    if (!automation) { automation = automations.find((candidate) => candidate.triggerType === 'ANY_COMMENT'); matchedKeyword = automation ? 'ANY_COMMENT' : ''; }
+    let automation = automations.find((candidate) => KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, candidate.triggerType as any).matched);
+    let matchedKeyword = automation ? KeywordMatcher.isMatch(event.commentText || '', automation.keywords, automation.matchingMode as any, automation.triggerType as any).matchedKeyword || '' : '';
     if (!automation) return this.finishEvent(eventId, 'IGNORED', 'No active automation matched this comment');
     if (automation.ignoreOwnerComments && event.commenterUsername === connection.instagramUsername) return this.finishEvent(eventId, 'IGNORED', 'Owner comment ignored');
 
