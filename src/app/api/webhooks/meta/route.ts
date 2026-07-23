@@ -16,10 +16,23 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     if (Buffer.byteLength(rawBody, 'utf8') > 1_000_000) return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 });
     if (!WebhookService.verifySignature(rawBody, req.headers.get('x-hub-signature-256'))) return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    const events = WebhookService.parseCommentEvents(JSON.parse(rawBody));
-    const stored = await Promise.all(events.map((event) => AutomationEngine.ingestCommentEvent(event)));
-    waitUntil(Promise.allSettled(stored.map((event) => AutomationEngine.processWebhookEvent(event.id))).then(() => undefined));
-    return NextResponse.json({ status: 'RECEIVED', eventCount: stored.length });
+    
+    const parsedBody = JSON.parse(rawBody);
+
+    // 1. Process Comment Webhook Events
+    const commentEvents = WebhookService.parseCommentEvents(parsedBody);
+    const storedComments = await Promise.all(commentEvents.map((event) => AutomationEngine.ingestCommentEvent(event)));
+    waitUntil(Promise.allSettled(storedComments.map((event) => AutomationEngine.processWebhookEvent(event.id))).then(() => undefined));
+
+    // 2. Process Messaging Webhook Events (Postback clicks)
+    const messagingEvents = WebhookService.parseMessagingEvents(parsedBody);
+    waitUntil(Promise.allSettled(messagingEvents.map((event) => AutomationEngine.processMessagingPostback(event))).then(() => undefined));
+
+    return NextResponse.json({ 
+      status: 'RECEIVED', 
+      commentEventCount: storedComments.length,
+      messagingEventCount: messagingEvents.length
+    });
   } catch (error) {
     console.error('Meta webhook receiver error:', error);
     return NextResponse.json({ error: 'Unable to receive webhook' }, { status: 500 });

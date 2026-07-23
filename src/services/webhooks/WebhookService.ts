@@ -82,4 +82,30 @@ export class WebhookService {
 
     return events;
   }
+
+  public static parseMessagingEvents(payload: any): Array<{
+    instagramAccountId: string;
+    senderId: string;
+    postbackPayload: string;
+    rawPayload: any;
+  }> {
+    const events: Array<any> = [];
+    if (!payload || !payload.entry) return events;
+    for (const entry of payload.entry) {
+      const instagramAccountId = entry.id;
+      if (entry.messaging) {
+        for (const msg of entry.messaging) {
+          if (msg.postback && msg.postback.payload) {
+            events.push({
+              instagramAccountId: msg.recipient?.id || instagramAccountId,
+              senderId: msg.sender?.id,
+              postbackPayload: msg.postback.payload,
+              rawPayload: payload,
+            });
+          }
+        }
+      }
+    }
+    return events;
+  }
 }

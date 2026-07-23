@@ -72,14 +72,41 @@ export class AutomationEngine {
       } else throw error;
     }
     if (isNewRun) await prisma.automation.update({ where: { id: automation.id }, data: { totalTriggers: { increment: 1 }, lastTriggeredAt: new Date() } });
-    const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
-    const message = automation.dmMessageTemplate
-      .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
-      .replace(/\{\{comment_text\}\}/g, event.commentText || '')
-      .replace(/\{\{post_caption\}\}/g, media.caption || '')
-      .replace(/\{\{resource_url\}\}/g, resourceValue)
-      .replace(/\{\{keyword\}\}/g, matchedKeyword);
-    const dm = await InstagramMessagingService.sendPrivateReply({ instagramAccountId: event.instagramAccountId, commentId: event.commentId, messageText: message, accessToken: decryptToken(connection.accessTokenEncrypted) });
+    
+    // Construct the follower-gating template card
+    const templatePayload = {
+      attachment: {
+        type: 'template',
+        payload: {
+          template_type: 'generic',
+          elements: [
+            {
+              title: 'Unlock Your Prompt 🎁',
+              subtitle: `Follow @${connection.instagramUsername} to unlock this prompt.`,
+              buttons: [
+                {
+                  type: 'web_url',
+                  url: `https://instagram.com/${connection.instagramUsername}`,
+                  title: '1. Follow to Unlock'
+                },
+                {
+                  type: 'postback',
+                  title: '2. Get Prompt 🚀',
+                  payload: `GET_PROMPT_POSTBACK_${automation.id}`
+                }
+              ]
+            }
+          ]
+        }
+      }
+    };
+
+    const dm = await InstagramMessagingService.sendPrivateTemplateReply({
+      instagramAccountId: event.instagramAccountId,
+      commentId: event.commentId,
+      templatePayload,
+      accessToken: decryptToken(connection.accessTokenEncrypted)
+    });
     if (!dm.success) return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed');
 
     let publicReplyStatus = 'SKIPPED'; let publicReplyId: string | undefined;
@@ -118,5 +145,59 @@ export class AutomationEngine {
       prisma.webhookEvent.update({ where: { id: event.id }, data: { status: retriesLeft ? 'RETRYING' : 'FAILED', errorDetails: message, retryCount, nextRetryAt: retriesLeft ? retryAt(retryCount) : null, processedAt: retriesLeft ? null : new Date(), processingStartedAt: null } }),
     ]);
     return { status: 'FAILED', message, automationRunId: runId };
+  }
+
+  public static async processMessagingPostback(payload: { instagramAccountId: string; senderId: string; postbackPayload: string; rawPayload: any }): Promise<Result> {
+    try {
+      const { instagramAccountId, senderId, postbackPayload } = payload;
+      if (!postbackPayload.startsWith('GET_PROMPT_POSTBACK_')) {
+        return { status: 'IGNORED', message: 'Not a gated prompt postback click' };
+      }
+
+      const automationId = postbackPayload.replace('GET_PROMPT_POSTBACK_', '');
+      const automation = await prisma.automation.findUnique({
+        where: { id: automationId },
+        include: { resource: true }
+      });
+      if (!automation || automation.status !== 'ACTIVE') {
+        return { status: 'IGNORED', message: 'Automation not found or inactive' };
+      }
+
+      const connection = await prisma.metaConnection.findUnique({ where: { instagramAccountId } });
+      if (!connection || connection.connectionStatus !== 'CONNECTED') {
+        return { status: 'IGNORED', message: 'No connected Instagram account' };
+      }
+
+      const accessToken = decryptToken(connection.accessTokenEncrypted);
+
+      // Verify if commenter follows the business page
+      const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
+      const isFollowing = profile?.is_user_follow_business ?? false;
+
+      if (isFollowing) {
+        // Send actual prompt
+        const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
+        const messageText = automation.dmMessageTemplate
+          .replace(/\{\{username\}\}/g, profile?.username || 'there')
+          .replace(/\{\{resource_url\}\}/g, resourceValue);
+          
+        const dm = await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText, accessToken });
+        if (dm.success) {
+          // Increment success count
+          await prisma.automation.update({ where: { id: automationId }, data: { totalSuccess: { increment: 1 } } });
+          return { status: 'PROCESSED', message: 'Prompt sent to follower successfully' };
+        } else {
+          await prisma.automation.update({ where: { id: automationId }, data: { totalFailed: { increment: 1 } } });
+          return { status: 'FAILED', message: `Failed to send prompt DM: ${dm.errorMessage}` };
+        }
+      } else {
+        // Remind user to follow first
+        const warningText = `Oops! Aapne abhi tak @${connection.instagramUsername} ko follow nahi kiya hai.\n\nPlease pehle hume follow karein aur dobara click karein! 😊`;
+        await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText: warningText, accessToken });
+        return { status: 'PROCESSED', message: 'Follower gate triggered: User not following' };
+      }
+    } catch (error: any) {
+      return { status: 'FAILED', message: error.message || 'Error processing postback click' };
+    }
   }
 }

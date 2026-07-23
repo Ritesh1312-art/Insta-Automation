@@ -50,4 +50,51 @@ export class InstagramMessagingService {
       return { success: false, errorCategory: 'TRANSIENT', errorMessage: error instanceof Error ? error.message : 'Network failure' };
     }
   }
+
+  public static async getUserProfile(igsid: string, accessToken: string): Promise<{ username?: string; is_user_follow_business?: boolean } | null> {
+    try {
+      const response = await fetch(`https://graph.facebook.com/${this.version}/${igsid}?fields=username,is_user_follow_business`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store'
+      });
+      if (!response.ok) return null;
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  public static async sendPrivateTemplateReply(payload: { instagramAccountId: string; commentId: string; templatePayload: any; accessToken: string }): Promise<ApiResponse> {
+    try {
+      const response = await fetch(`https://graph.facebook.com/${this.version}/${payload.instagramAccountId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${payload.accessToken}` },
+        body: JSON.stringify({
+          recipient: { comment_id: payload.commentId },
+          message: payload.templatePayload
+        }),
+      });
+      const data = await response.json();
+      return response.ok ? { success: true, responseId: data.id || data.message_id } : classifyError(data);
+    } catch (error) {
+      return { success: false, errorCategory: 'TRANSIENT', errorMessage: error instanceof Error ? error.message : 'Network failure' };
+    }
+  }
+
+  public static async sendDirectMessage(payload: { recipientId: string; messageText: string; accessToken: string }): Promise<ApiResponse> {
+    try {
+      const response = await fetch(`https://graph.facebook.com/${this.version}/me/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${payload.accessToken}` },
+        body: JSON.stringify({
+          recipient: { id: payload.recipientId },
+          message: { text: payload.messageText }
+        }),
+      });
+      const data = await response.json();
+      return response.ok ? { success: true, responseId: data.message_id || data.id } : classifyError(data);
+    } catch (error) {
+      return { success: false, errorCategory: 'TRANSIENT', errorMessage: error instanceof Error ? error.message : 'Network failure' };
+    }
+  }
 }
