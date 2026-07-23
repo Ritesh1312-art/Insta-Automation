@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
         META_FACEBOOK_PAGE_ID: process.env.META_FACEBOOK_PAGE_ID || 'Not Set',
         META_GRAPH_API_VERSION: process.env.META_GRAPH_API_VERSION || 'Not Set',
         SETUP_TOKEN: process.env.SETUP_TOKEN || 'Not Set',
+        META_VERIFY_TOKEN: process.env.META_VERIFY_TOKEN ? 'Configured' : 'Missing',
       }
     });
   } catch (error: any) {
