@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
+let waitUntil = (promise: Promise<any>) => { promise.catch(() => undefined); };
+try {
+  const vf = require('@vercel/functions');
+  if (vf?.waitUntil) waitUntil = vf.waitUntil;
+} catch {}
 import { WebhookService } from '@/services/webhooks/WebhookService';
 import { AutomationEngine } from '@/services/automation/AutomationEngine';
 

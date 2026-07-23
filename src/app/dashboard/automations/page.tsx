@@ -170,9 +170,11 @@ export default function AutomationsPage() {
                       <strong className="text-fuchsia-400 font-medium">
                         {auto.triggerType === 'ANY_COMMENT'
                           ? 'Any Comment'
+                          : auto.matchingMode === 'CONTAINS'
+                          ? `Any Word Contains (${auto.keywords?.join(', ') || ''})`
                           : auto.matchingMode === 'CASE_SENSITIVE'
-                          ? `Case-Sensitive (${auto.keywords.join(', ')})`
-                          : `Exact Match (${auto.keywords.join(', ')})`}
+                          ? `Case-Sensitive (${auto.keywords?.join(', ') || ''})`
+                          : `Exact Word (${auto.keywords?.join(', ') || ''})`}
                       </strong>
                     </span>
                   </div>
@@ -263,40 +265,107 @@ export default function AutomationsPage() {
               {/* STEP 2: Trigger Mode & Keyword */}
               <div className="pt-2 border-t border-slate-800 space-y-3">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1.5">2️⃣ Trigger Mode</label>
-                  <select
-                    value={triggerOption}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setTriggerOption(val);
-                      if (val === 'ANY_COMMENT') {
+                  <label className="block text-slate-300 font-semibold mb-2">
+                    2️⃣ Trigger Matching Mode
+                  </label>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTriggerOption('CONTAINS');
+                        if (!keywordsText) setKeywordsText('PROMPT');
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all ${
+                        triggerOption === 'CONTAINS'
+                          ? 'bg-fuchsia-950/50 border-fuchsia-500 text-white shadow-md shadow-fuchsia-500/10'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="font-bold text-xs flex items-center justify-between">
+                        <span>🔍 Any Word</span>
+                        {triggerOption === 'CONTAINS' && <Check className="w-3.5 h-3.5 text-fuchsia-400" />}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Triggers if comment contains the word anywhere</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTriggerOption('EXACT');
+                        if (!keywordsText) setKeywordsText('PROMPT');
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all ${
+                        triggerOption === 'EXACT'
+                          ? 'bg-fuchsia-950/50 border-fuchsia-500 text-white shadow-md shadow-fuchsia-500/10'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="font-bold text-xs flex items-center justify-between">
+                        <span>🎯 Exact Word</span>
+                        {triggerOption === 'EXACT' && <Check className="w-3.5 h-3.5 text-fuchsia-400" />}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Matches exact word/phrase (case-insensitive)</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTriggerOption('CASE_SENSITIVE');
+                        if (!keywordsText) setKeywordsText('PROMPT');
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all ${
+                        triggerOption === 'CASE_SENSITIVE'
+                          ? 'bg-fuchsia-950/50 border-fuchsia-500 text-white shadow-md shadow-fuchsia-500/10'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="font-bold text-xs flex items-center justify-between">
+                        <span>🔠 Case Sensitivity</span>
+                        {triggerOption === 'CASE_SENSITIVE' && <Check className="w-3.5 h-3.5 text-fuchsia-400" />}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Matches exact UPPERCASE / lowercase</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTriggerOption('ANY_COMMENT');
                         setKeywordsText('');
-                      } else if (keywordsText === '') {
-                        setKeywordsText('PROMPT');
-                      }
-                    }}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-fuchsia-500 text-xs font-medium"
-                  >
-                    <option value="EXACT">Exact Match (Case-Insensitive)</option>
-                    <option value="CASE_SENSITIVE">Case-Sensitive Match</option>
-                    <option value="ANY_COMMENT">Any Comment (Every comment triggers)</option>
-                  </select>
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all ${
+                        triggerOption === 'ANY_COMMENT'
+                          ? 'bg-fuchsia-950/50 border-fuchsia-500 text-white shadow-md shadow-fuchsia-500/10'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="font-bold text-xs flex items-center justify-between">
+                        <span>💬 Any Comment</span>
+                        {triggerOption === 'ANY_COMMENT' && <Check className="w-3.5 h-3.5 text-fuchsia-400" />}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Triggers on every comment without keyword</p>
+                    </button>
+                  </div>
                 </div>
 
                 {triggerOption !== 'ANY_COMMENT' && (
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Trigger Keyword</label>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Trigger Word / Keyword
+                    </label>
                     <input
                       type="text"
                       value={keywordsText}
                       onChange={(e) => setKeywordsText(e.target.value)}
-                      placeholder="PROMPT"
+                      placeholder="e.g. PROMPT or LINK"
                       required
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-fuchsia-500"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-fuchsia-500 text-xs"
                     />
                     <p className="text-[10px] text-slate-500 mt-1">
-                      {triggerOption === 'EXACT'
-                        ? 'Comment will match regardless of uppercase, lowercase, emojis or punctuation.'
+                      {triggerOption === 'CONTAINS'
+                        ? 'Comment will match if it contains this word anywhere inside the text.'
+                        : triggerOption === 'EXACT'
+                        ? 'Comment will match if it equals this exact keyword (case-insensitive).'
                         : 'Comment must match the exact capitalization/case of your keyword.'}
                     </p>
                   </div>

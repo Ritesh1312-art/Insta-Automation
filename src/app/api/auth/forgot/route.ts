@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
-import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,7 +46,8 @@ export async function POST(req: NextRequest) {
 
       if (smtpHost && smtpPort && smtpUser && smtpPass) {
         try {
-          const transporter = nodemailer.createTransport({
+          const nm = require('nodemailer');
+          const transporter = nm.createTransport({
             host: smtpHost,
             port: parseInt(smtpPort),
             secure: parseInt(smtpPort) === 465,
