@@ -19,11 +19,24 @@ export async function GET(req: NextRequest) {
       select: { id: true, email: true, role: true }
     });
 
+    const webhookEvents = await prisma.webhookEvent.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    const automationRuns = await prisma.automationRun.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: { automation: { select: { name: true } } }
+    });
+
     return NextResponse.json({
       success: true,
       logs,
       connections,
       users,
+      webhookEvents,
+      automationRuns,
       env: {
         APP_URL: process.env.APP_URL || 'Not Set',
         META_APP_ID: process.env.META_APP_ID ? 'Configured' : 'Missing',
