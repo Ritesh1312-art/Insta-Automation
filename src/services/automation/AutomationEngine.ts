@@ -33,20 +33,29 @@ export class AutomationEngine {
     const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
     if (!event?.instagramAccountId || !event.mediaId || !event.commentId || !event.commenterId || event.commentText === null) return this.finishEvent(eventId, 'IGNORED', 'Incomplete comment event');
 
-    const connection = await prisma.metaConnection.findUnique({ where: { instagramAccountId: event.instagramAccountId } });
+    const connection = await prisma.metaConnection.findFirst({
+      where: {
+        OR: [
+          { instagramAccountId: event.instagramAccountId },
+          { facebookPageId: event.instagramAccountId },
+        ],
+      },
+    });
     if (!connection || connection.connectionStatus !== 'CONNECTED') return this.finishEvent(eventId, 'IGNORED', 'No connected Instagram account for this event');
     if (connection.expiresAt && connection.expiresAt <= new Date()) {
       await prisma.metaConnection.update({ where: { id: connection.id }, data: { connectionStatus: 'TOKEN_EXPIRED' } });
       return this.finishEvent(eventId, 'IGNORED', 'Instagram access token has expired; reconnect the account');
     }
 
+    const realIgAccountId = connection.instagramAccountId;
+
     const media = await prisma.media.upsert({
       where: { instagramMediaId: event.mediaId },
-      create: { instagramAccountId: event.instagramAccountId, instagramMediaId: event.mediaId, mediaType: 'REEL', caption: null, permalink: null, timestamp: new Date() },
+      create: { instagramAccountId: realIgAccountId, instagramMediaId: event.mediaId, mediaType: 'REEL', caption: null, permalink: null, timestamp: new Date() },
       update: {},
     });
     const automations = await prisma.automation.findMany({
-      where: { instagramAccountId: event.instagramAccountId, status: 'ACTIVE', OR: [{ mediaId: media.id }, { mediaId: null }] }, include: { resource: true },
+      where: { instagramAccountId: realIgAccountId, status: 'ACTIVE', OR: [{ mediaId: media.id }, { mediaId: null }] }, include: { resource: true },
     });
     let automation = automations.find((candidate) => KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, candidate.triggerType as any).matched);
     let matchedKeyword = automation ? KeywordMatcher.isMatch(event.commentText || '', automation.keywords, automation.matchingMode as any, automation.triggerType as any).matchedKeyword || '' : '';

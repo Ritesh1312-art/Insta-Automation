@@ -68,14 +68,16 @@ export class WebhookService {
         for (const change of entry.changes) {
           if (change.field === 'comments' && change.value) {
             const val = change.value;
-            const mediaId = val.media?.id || val.media_id;
-            if (typeof val.id !== 'string' || typeof mediaId !== 'string' || typeof val.from?.id !== 'string') continue;
+            const mediaId = String(val.media?.id || val.media_id || '');
+            const commentId = String(val.id || '');
+            const commenterId = String(val.from?.id || val.from?.id_str || commentId);
+            if (!commentId || !mediaId) continue;
             events.push({
-              instagramAccountId: val.recipient_id || instagramAccountId,
+              instagramAccountId: String(val.recipient_id || instagramAccountId),
               mediaId,
-              commentId: val.id,
-              commenterId: val.from.id,
-              commenterUsername: typeof val.from.username === 'string' ? val.from.username : '',
+              commentId,
+              commenterId,
+              commenterUsername: typeof val.from?.username === 'string' ? val.from.username : '',
               commentText: typeof val.text === 'string' ? val.text : '',
               rawPayload: payload,
             });
