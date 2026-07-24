@@ -81,30 +81,30 @@ export class AutomationEngine {
     }
     if (isNewRun) await prisma.automation.update({ where: { id: automation.id }, data: { totalTriggers: { increment: 1 }, lastTriggeredAt: new Date() } });
     
-    // Format DM message text and prepare 2-Button Interactive Template
-    const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
+    // STEP 1 DM: Send "Follow + I've Followed" card (NO Get Prompt yet)
+    // Get Prompt only appears AFTER user confirms follow via "✅ I've Followed" postback
     const igUsername = connection.instagramUsername || 'stuti.ritesh90';
 
-    // Build Meta Generic Card Template with 2 Interactive Buttons
-    const templatePayload = {
+    // Step-1 card: only Follow button + "I've Followed" confirmation button
+    const step1Template = {
       attachment: {
         type: 'template',
         payload: {
           template_type: 'generic',
           elements: [
             {
-              title: `Hey @${event.commenterUsername || 'follower'}! 🎁`,
-              subtitle: `Follow @${igUsername} to unlock your prompt link below! 🚀`,
+              title: `Hey @${event.commenterUsername || 'there'}! 🎁`,
+              subtitle: `Follow @${igUsername} to unlock your exclusive prompt! Once you follow, tap "✅ I've Followed" below.`,
               buttons: [
                 {
                   type: 'web_url',
-                  url: `https://instagram.com/${igUsername}`,
+                  url: `https://www.instagram.com/${igUsername}/`,
                   title: '👉 Follow Profile',
                 },
                 {
                   type: 'postback',
-                  title: '✨ Get Prompt',
-                  payload: `GET_PROMPT_POSTBACK_${automation.id}`,
+                  title: '✅ I\'ve Followed',
+                  payload: `FOLLOW_CONFIRMED_${automation.id}`,
                 },
               ],
             },
@@ -113,23 +113,21 @@ export class AutomationEngine {
       },
     };
 
-    // Send 2-Button Interactive Card via Private Reply API
+    // Send Step-1 Card via Private Reply
     let dm = await InstagramMessagingService.sendPrivateTemplateReply({
       instagramAccountId: event.instagramAccountId,
       commentId: event.commentId,
-      templatePayload,
+      templatePayload: step1Template,
       accessToken: decryptToken(connection.accessTokenEncrypted),
     });
 
-    // Fallback to text Private Reply if template is not supported
+    // Fallback to plain text if template fails
     if (!dm.success) {
-      const dmText = automation.dmMessageTemplate
-        .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
-        .replace(/\{\{resource_url\}\}/g, resourceValue);
+      const fallbackText = `Hey @${event.commenterUsername || 'there'}! 🎁\n\nTo get your exclusive prompt:\n1️⃣ Follow @${igUsername} on Instagram\n2️⃣ Come back to this DM and reply "DONE"\n\nYour prompt will unlock instantly! 🔓`;
       dm = await InstagramMessagingService.sendPrivateReply({
         instagramAccountId: event.instagramAccountId,
         commentId: event.commentId,
-        messageText: dmText,
+        messageText: fallbackText,
         accessToken: decryptToken(connection.accessTokenEncrypted),
       });
     }
@@ -186,12 +184,10 @@ export class AutomationEngine {
   public static async processMessagingPostback(payload: { instagramAccountId: string; senderId: string; postbackPayload: string; rawPayload: any }): Promise<Result> {
     try {
       const { instagramAccountId, senderId, postbackPayload } = payload;
+      const cleanPayload = (postbackPayload || '').trim();
 
-      // CASE 1: Follow URL click tracking
-      // When user clicks "👉 Follow Profile" web_url button, Meta fires a "web_url" referral
-      // We track this in DB so we know user has indicated intent to follow
-      if (postbackPayload === 'FOLLOW_CLICKED' || postbackPayload.includes('FOLLOW_PROFILE')) {
-        // Mark user as having clicked the follow button
+      // CASE 1: Follow Profile Web URL referral click tracking
+      if (cleanPayload === 'FOLLOW_CLICKED' || cleanPayload.includes('FOLLOW_PROFILE')) {
         const conn = await prisma.metaConnection.findFirst({
           where: { OR: [{ instagramAccountId }, { facebookPageId: instagramAccountId }] },
         });
@@ -205,8 +201,82 @@ export class AutomationEngine {
         return { status: 'PROCESSED', message: 'Follow click tracked in DB' };
       }
 
-      // CASE 2: Get Prompt button click
-      const cleanPayload = (postbackPayload || '').trim();
+      // CASE 2: User taps "✅ I've Followed" (FOLLOW_CONFIRMED_${automation.id})
+      if (cleanPayload.startsWith('FOLLOW_CONFIRMED_') || cleanPayload.toLowerCase().includes("i've followed") || cleanPayload.toLowerCase().includes("ive followed")) {
+        let automationId = cleanPayload.replace('FOLLOW_CONFIRMED_', '');
+        let automation = automationId
+          ? await prisma.automation.findUnique({ where: { id: automationId }, include: { resource: true } })
+          : null;
+
+        if (!automation) {
+          automation = await prisma.automation.findFirst({
+            where: { OR: [{ instagramAccountId }, { instagramAccountId: { not: '' } }], status: 'ACTIVE' },
+            orderBy: { updatedAt: 'desc' },
+            include: { resource: true },
+          });
+        }
+
+        if (!automation || automation.status !== 'ACTIVE') {
+          return { status: 'IGNORED', message: 'Automation not found or inactive' };
+        }
+
+        const connection = await prisma.metaConnection.findFirst({
+          where: { OR: [{ instagramAccountId }, { facebookPageId: instagramAccountId }, { instagramAccountId: automation.instagramAccountId }] },
+        });
+        if (!connection || connection.connectionStatus !== 'CONNECTED') {
+          return { status: 'IGNORED', message: 'No connected Instagram account' };
+        }
+
+        const accessToken = decryptToken(connection.accessTokenEncrypted);
+        const realInstagramAccountId = connection.instagramAccountId;
+
+        // Record follow confirmation in DB
+        await prisma.contact.upsert({
+          where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
+          create: { instagramAccountId: realInstagramAccountId, igsid: senderId, followedAt: new Date() },
+          update: { followedAt: new Date(), lastInteraction: new Date() },
+        });
+
+        // Send Step-2 Card with "✨ Get Prompt" button NOW!
+        const step2Template = {
+          attachment: {
+            type: 'template',
+            payload: {
+              template_type: 'generic',
+              elements: [
+                {
+                  title: `🎉 Follow Verified!`,
+                  subtitle: `Thank you for following! Your prompt is now unlocked. Click below to get it! 🚀`,
+                  buttons: [
+                    {
+                      type: 'postback',
+                      title: '✨ Get Prompt',
+                      payload: `GET_PROMPT_POSTBACK_${automation.id}`,
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        };
+
+        const dm = await InstagramMessagingService.sendDirectMessage({
+          recipientId: senderId,
+          messageText: `🎉 Thank you for following @${connection.instagramUsername}! Your prompt is now unlocked.\n\nTap "✨ Get Prompt" below to receive it! 🚀`,
+          accessToken,
+        });
+
+        await InstagramMessagingService.sendPrivateTemplateReply({
+          instagramAccountId: realInstagramAccountId,
+          commentId: '',
+          templatePayload: step2Template,
+          accessToken,
+        }).catch(() => null);
+
+        return { status: 'PROCESSED', message: 'Follow confirmed. Step 2 Get Prompt button unlocked and sent' };
+      }
+
+      // CASE 3: User taps "✨ Get Prompt" (GET_PROMPT_POSTBACK_${automation.id})
       const isPromptClick = cleanPayload.startsWith('GET_PROMPT_POSTBACK_') || cleanPayload.toLowerCase().includes('get prompt') || cleanPayload.toLowerCase() === '✨ get prompt';
 
       if (!isPromptClick) {
@@ -253,9 +323,10 @@ export class AutomationEngine {
       const hasFollowed = contact?.followedAt != null;
 
       if (!hasFollowed) {
-        // User has NOT clicked Follow yet — gate the prompt, send reminder
-        const warningText = `❌ Aapne abhi tak @${connection.instagramUsername} ko follow nahi kiya!\n\n` +
-          `Please pehle:\n1️⃣ "👉 Follow Profile" button dabao\n2️⃣ Follow karo\n3️⃣ Phir "✨ Get Prompt" click karo\n\nFollow karte hi prompt unlock ho jayega! 🔓`;
+        // User has NOT confirmed follow yet — gate the prompt, send reminder
+        const warningText = `🔒 Access Locked!\n\n` +
+          `Aapne abhi tak follow confirm nahi kiya.\n\n` +
+          `Please:\n1️⃣ "👉 Follow Profile" button dabao\n2️⃣ Follow karo\n3️⃣ Phir "✅ I've Followed" click karo!\n\nFollow karte hi prompt mil jayega! 😊`;
         await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText: warningText, accessToken });
         return { status: 'PROCESSED', message: 'Follow gate enforced: user has not followed yet' };
       }
@@ -263,13 +334,11 @@ export class AutomationEngine {
       // User HAS followed — deliver the prompt
       const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
       if (!resourceValue) {
-        // No resource configured — send informational error
-        await InstagramMessagingService.sendDirectMessage({
-          recipientId: senderId,
-          messageText: `Hi! Aapne follow kiya, thank you! 🎉\n\nPrompt abhi set ho raha hai, thoda wait karein. Hum jald hi bhejenge! ⏳`,
-          accessToken,
-        });
-        return { status: 'PROCESSED', message: 'Prompt delivered but resource not configured' };
+        // Fallback message if resource object is empty
+        const fallbackPrompt = automation.dmMessageTemplate || 'Hi {{username}}! Here is your prompt:\n\nhttps://drive.google.com/';
+        const messageText = fallbackPrompt.replace(/\{\{username\}\}/g, contact?.username || 'follower');
+        await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText, accessToken });
+        return { status: 'PROCESSED', message: 'Prompt delivered using fallback template' };
       }
 
       const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
