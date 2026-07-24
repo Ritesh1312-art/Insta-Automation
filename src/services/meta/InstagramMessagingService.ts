@@ -51,9 +51,9 @@ export class InstagramMessagingService {
     }
   }
 
-  public static async getUserProfile(igsid: string, accessToken: string): Promise<{ username?: string; is_user_follow_business?: boolean } | null> {
+  public static async getUserProfile(igsid: string, accessToken: string): Promise<{ username?: string; name?: string } | null> {
     try {
-      const response = await fetch(`https://graph.facebook.com/${this.version}/${igsid}?fields=username,is_user_follow_business`, {
+      const response = await fetch(`https://graph.facebook.com/${this.version}/${igsid}?fields=username,name`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: 'no-store'
       });
