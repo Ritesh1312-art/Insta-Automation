@@ -58,7 +58,7 @@ export class MetaAuthService {
     // Automatically subscribe the Facebook Page to the App to enable webhook event delivery
     try {
       const subResponse = await fetch(
-        `https://graph.facebook.com/${graphApiVersion}/${page.id}/subscribed_apps?subscribed_fields=messages,feed,mention,comments`,
+        `https://graph.facebook.com/${graphApiVersion}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,feed,mention`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${page.access_token}` },
