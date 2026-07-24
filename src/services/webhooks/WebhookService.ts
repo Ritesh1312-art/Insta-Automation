@@ -104,15 +104,38 @@ export class WebhookService {
     if (!payload || !payload.entry) return events;
     for (const entry of payload.entry) {
       const instagramAccountId = entry.id;
+
+      // Structure 1: Direct Messaging Array
       if (entry.messaging) {
         for (const msg of entry.messaging) {
-          if (msg.postback && msg.postback.payload) {
+          const senderId = msg.sender?.id || msg.sender?.id_str;
+          const postbackPayload = msg.postback?.payload || msg.postback?.title || msg.message?.quick_reply?.payload || msg.message?.text;
+          if (senderId && postbackPayload) {
             events.push({
               instagramAccountId: msg.recipient?.id || instagramAccountId,
-              senderId: msg.sender?.id,
-              postbackPayload: msg.postback.payload,
+              senderId,
+              postbackPayload,
               rawPayload: payload,
             });
+          }
+        }
+      }
+
+      // Structure 2: Entry Changes Array
+      if (entry.changes) {
+        for (const change of entry.changes) {
+          if ((change.field === 'messages' || change.field === 'messaging_postbacks') && change.value) {
+            const val = change.value;
+            const senderId = val.sender?.id || val.from?.id || val.from?.id_str;
+            const postbackPayload = val.postback?.payload || val.postback?.title || val.message?.text;
+            if (senderId && postbackPayload) {
+              events.push({
+                instagramAccountId: String(val.recipient?.id || instagramAccountId),
+                senderId: String(senderId),
+                postbackPayload: String(postbackPayload),
+                rawPayload: payload,
+              });
+            }
           }
         }
       }
