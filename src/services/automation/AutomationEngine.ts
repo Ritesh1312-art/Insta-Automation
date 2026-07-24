@@ -81,19 +81,58 @@ export class AutomationEngine {
     }
     if (isNewRun) await prisma.automation.update({ where: { id: automation.id }, data: { totalTriggers: { increment: 1 }, lastTriggeredAt: new Date() } });
     
-    // Format DM message text (replacing {{username}} and {{resource_url}} placeholders)
+    // Format DM message text and prepare 2-Button Interactive Template
     const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
-    const dmText = automation.dmMessageTemplate
-      .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
-      .replace(/\{\{resource_url\}\}/g, resourceValue);
+    const igUsername = connection.instagramUsername || 'stuti.ritesh90';
 
-    // 1. Send Private Reply DM to commenter via Meta Graph API
-    const dm = await InstagramMessagingService.sendPrivateReply({
+    // Build Meta Generic Card Template with 2 Interactive Buttons
+    const templatePayload = {
+      attachment: {
+        type: 'template',
+        payload: {
+          template_type: 'generic',
+          elements: [
+            {
+              title: `Hey @${event.commenterUsername || 'follower'}! 🎁`,
+              subtitle: `Follow @${igUsername} to unlock your prompt link below! 🚀`,
+              buttons: [
+                {
+                  type: 'web_url',
+                  url: `https://instagram.com/${igUsername}`,
+                  title: '👉 Follow Profile',
+                },
+                {
+                  type: 'postback',
+                  title: '✨ Get Prompt',
+                  payload: `GET_PROMPT_POSTBACK_${automation.id}`,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    // Send 2-Button Interactive Card via Private Reply API
+    let dm = await InstagramMessagingService.sendPrivateTemplateReply({
       instagramAccountId: event.instagramAccountId,
       commentId: event.commentId,
-      messageText: dmText,
+      templatePayload,
       accessToken: decryptToken(connection.accessTokenEncrypted),
     });
+
+    // Fallback to text Private Reply if template is not supported
+    if (!dm.success) {
+      const dmText = automation.dmMessageTemplate
+        .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
+        .replace(/\{\{resource_url\}\}/g, resourceValue);
+      dm = await InstagramMessagingService.sendPrivateReply({
+        instagramAccountId: event.instagramAccountId,
+        commentId: event.commentId,
+        messageText: dmText,
+        accessToken: decryptToken(connection.accessTokenEncrypted),
+      });
+    }
 
     // 2. Send Public Comment Reply if enabled
     let publicReplyStatus = 'SKIPPED';

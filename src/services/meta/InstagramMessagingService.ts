@@ -66,7 +66,7 @@ export class InstagramMessagingService {
 
   public static async sendPrivateTemplateReply(payload: { instagramAccountId: string; commentId: string; templatePayload: any; accessToken: string }): Promise<ApiResponse> {
     try {
-      const response = await fetch(`https://graph.facebook.com/${this.version}/${payload.instagramAccountId}/messages`, {
+      const response = await fetch(`https://graph.facebook.com/${this.version}/me/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${payload.accessToken}` },
         body: JSON.stringify({
