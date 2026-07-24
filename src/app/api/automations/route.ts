@@ -110,3 +110,21 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unable to update automation' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = await requireSessionUser();
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'Automation ID is required' }, { status: 400 });
+
+    await prisma.automationRun.deleteMany({ where: { automationId: id } });
+    const result = await prisma.automation.deleteMany({ where: { id, userId: user.userId } });
+
+    if (result.count === 0) return NextResponse.json({ error: 'Automation not found' }, { status: 404 });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (unauthorized(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    return NextResponse.json({ error: 'Unable to delete automation' }, { status: 500 });
+  }
+}

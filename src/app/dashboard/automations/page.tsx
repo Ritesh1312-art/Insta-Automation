@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Zap, Plus, Check, Play, Pause, RefreshCw, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { Zap, Plus, Check, Play, Pause, RefreshCw, Image as ImageIcon, Sparkles, Trash2 } from 'lucide-react';
 
 export default function AutomationsPage() {
   const [automations, setAutomations] = useState<any[]>([]);
@@ -53,6 +53,20 @@ export default function AutomationsPage() {
       if (res.ok) fetchData();
     } catch (err) {
       alert('Failed to update status');
+    }
+  };
+
+  const handleDeleteAutomation = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+    try {
+      const res = await fetch(`/api/automations?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchData();
+      } else {
+        alert('Failed to delete automation');
+      }
+    } catch (err) {
+      alert('Error deleting automation');
     }
   };
 
@@ -190,17 +204,27 @@ export default function AutomationsPage() {
                     <div className="text-slate-500 text-[11px]">{auto.totalFailed} Failed</div>
                   </div>
 
-                  <button
-                    onClick={() => handleToggleStatus(auto.id, auto.status)}
-                    className={`px-3 py-1.5 rounded-lg font-medium border flex items-center gap-1.5 ${
-                      auto.status === 'ACTIVE'
-                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
-                        : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
-                    }`}
-                  >
-                    {auto.status === 'ACTIVE' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                    {auto.status === 'ACTIVE' ? 'Pause' : 'Activate'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleToggleStatus(auto.id, auto.status)}
+                      className={`px-3 py-1.5 rounded-lg font-medium border flex items-center gap-1.5 ${
+                        auto.status === 'ACTIVE'
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                          : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
+                      }`}
+                    >
+                      {auto.status === 'ACTIVE' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                      {auto.status === 'ACTIVE' ? 'Pause' : 'Activate'}
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteAutomation(auto.id, auto.name)}
+                      className="px-3 py-1.5 rounded-lg font-medium bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 flex items-center gap-1.5 transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
