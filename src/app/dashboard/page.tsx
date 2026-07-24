@@ -355,7 +355,7 @@ export default function DashboardOverview() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {run.status === 'API_ACCEPTED' ? (
+                      {run.status === 'API_ACCEPTED' || run.dmStatus === 'SENT' ? (
                         <span className="inline-flex items-center gap-1 text-emerald-400 font-medium">
                           <CheckCircle2 className="w-3.5 h-3.5" /> DELIVERED (API 200)
                         </span>
