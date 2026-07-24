@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: 'Production-ready official Meta Graph API Instagram Comment-to-DM Automation platform.',
   verification: {
     other: {
-      'facebook-domain-verification': ['9vx2bjd32pgw4s6lkrn4twvuguyxd6'],
+      'facebook-domain-verification': ['x7cerzpt4dqxmiygsptlkwa540f84', '9vx2bjd32pgw4s6lkrn4twvuguyxd6'],
     },
   },
 };
@@ -19,7 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <meta name="facebook-domain-verification" content="9vx2bjd32pgw4s6lkrn4twvuguyxd6" />
+        <meta name="facebook-domain-verification" content="x7cerzpt4dqxmiygsptlkwa540f84" />
       </head>
       <body className="min-h-screen bg-slate-50 antialiased selection:bg-fuchsia-500 selection:text-white">
         {children}
