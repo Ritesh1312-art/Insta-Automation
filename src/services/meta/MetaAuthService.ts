@@ -19,7 +19,16 @@ export class MetaAuthService {
 
   public static getOAuthUrl(state: string, redirectUri: string): string {
     const { graphApiVersion, appId } = this.config;
-    const scopes = ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_show_list', 'pages_read_engagement', 'business_management'].join(',');
+    const scopes = [
+      'instagram_basic',
+      'instagram_manage_comments',
+      'instagram_manage_messages',
+      'pages_show_list',
+      'pages_read_engagement',
+      'business_management',
+      'pages_messaging',
+      'pages_manage_metadata'
+    ].join(',');
     return `https://www.facebook.com/${graphApiVersion}/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${encodeURIComponent(state)}`;
   }
 
@@ -58,7 +67,7 @@ export class MetaAuthService {
     // Automatically subscribe the Facebook Page to the App to enable webhook event delivery
     try {
       const subResponse = await fetch(
-        `https://graph.facebook.com/${graphApiVersion}/${page.id}/subscribed_apps?subscribed_fields=name`,
+        `https://graph.facebook.com/${graphApiVersion}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,feed,mention`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${page.access_token}` },
