@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       try {
         const pageAccessToken = decryptToken(conn.accessTokenEncrypted);
         const subResponse = await fetch(
-          `https://graph.facebook.com/${graphApiVersion}/${conn.facebookPageId}/subscribed_apps`,
+          `https://graph.facebook.com/${graphApiVersion}/${conn.facebookPageId}/subscribed_apps?subscribed_fields=name`,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${pageAccessToken}` },
