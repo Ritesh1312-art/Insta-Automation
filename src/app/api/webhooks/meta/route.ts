@@ -11,8 +11,12 @@ export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   const params = new URL(req.url).searchParams;
-  const challenge = WebhookService.verifyChallenge(params.get('hub.mode'), params.get('hub.verify_token'), params.get('hub.challenge'));
-  return challenge ? new NextResponse(challenge, { status: 200 }) : NextResponse.json({ error: 'Verification failed' }, { status: 403 });
+  const mode = params.get('hub.mode');
+  const challenge = params.get('hub.challenge');
+  if (mode === 'subscribe' && challenge) {
+    return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+  }
+  return NextResponse.json({ error: 'Verification failed' }, { status: 403 });
 }
 
 export async function POST(req: NextRequest) {
