@@ -161,6 +161,8 @@ model Contact {
   metaConnection     MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
   igsid              String
   username           String?
+  followedAt         DateTime?      // Set when user clicks Follow Profile button
+  promptSentAt       DateTime?      // Set when prompt DM is successfully delivered
   firstInteraction   DateTime       @default(now())
   lastInteraction    DateTime       @default(now())
   totalInteractions  Int            @default(1)

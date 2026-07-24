@@ -32,14 +32,25 @@ export async function POST(req: NextRequest) {
     const storedComments = await Promise.all(commentEvents.map((event) => AutomationEngine.ingestCommentEvent(event)));
     waitUntil(Promise.allSettled(storedComments.map((event) => AutomationEngine.processWebhookEvent(event.id))).then(() => undefined));
 
-    // 2. Process Messaging Webhook Events (Postback clicks)
+    // 2. Process Messaging Postback Events (button clicks like Get Prompt)
     const messagingEvents = WebhookService.parseMessagingEvents(parsedBody);
     waitUntil(Promise.allSettled(messagingEvents.map((event) => AutomationEngine.processMessagingPostback(event))).then(() => undefined));
+
+    // 3. Process Messaging Referrals (web_url button click tracking for Follow button)
+    // When user clicks "Follow Profile" (web_url button), Meta sends a messaging_referrals event
+    const referralEvents = WebhookService.parseReferralEvents(parsedBody);
+    waitUntil(Promise.allSettled(referralEvents.map((event) => AutomationEngine.processMessagingPostback({
+      instagramAccountId: event.instagramAccountId,
+      senderId: event.senderId,
+      postbackPayload: 'FOLLOW_PROFILE_CLICKED',
+      rawPayload: event.rawPayload,
+    }))).then(() => undefined));
 
     return NextResponse.json({ 
       status: 'RECEIVED', 
       commentEventCount: storedComments.length,
-      messagingEventCount: messagingEvents.length
+      messagingEventCount: messagingEvents.length,
+      referralEventCount: referralEvents.length,
     });
   } catch (error) {
     console.error('Meta webhook receiver error:', error);

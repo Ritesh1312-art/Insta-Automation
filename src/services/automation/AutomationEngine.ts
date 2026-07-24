@@ -186,26 +186,49 @@ export class AutomationEngine {
   public static async processMessagingPostback(payload: { instagramAccountId: string; senderId: string; postbackPayload: string; rawPayload: any }): Promise<Result> {
     try {
       const { instagramAccountId, senderId, postbackPayload } = payload;
-      const cleanPayload = (postbackPayload || '').trim().toLowerCase();
 
-      // Match any button click containing prompt, get_prompt, or postback token
-      const isPromptClick = cleanPayload.includes('prompt') || cleanPayload.includes('get_prompt') || cleanPayload.includes('postback');
+      // CASE 1: Follow URL click tracking
+      // When user clicks "👉 Follow Profile" web_url button, Meta fires a "web_url" referral
+      // We track this in DB so we know user has indicated intent to follow
+      if (postbackPayload === 'FOLLOW_CLICKED' || postbackPayload.includes('FOLLOW_PROFILE')) {
+        // Mark user as having clicked the follow button
+        const conn = await prisma.metaConnection.findFirst({
+          where: { OR: [{ instagramAccountId }, { facebookPageId: instagramAccountId }] },
+        });
+        if (conn) {
+          await prisma.contact.upsert({
+            where: { instagramAccountId_igsid: { instagramAccountId: conn.instagramAccountId, igsid: senderId } },
+            create: { instagramAccountId: conn.instagramAccountId, igsid: senderId, followedAt: new Date() },
+            update: { followedAt: new Date(), lastInteraction: new Date() },
+          });
+        }
+        return { status: 'PROCESSED', message: 'Follow click tracked in DB' };
+      }
+
+      // CASE 2: Get Prompt button click
+      const cleanPayload = (postbackPayload || '').trim();
+      const isPromptClick = cleanPayload.startsWith('GET_PROMPT_POSTBACK_') || cleanPayload.toLowerCase().includes('get prompt') || cleanPayload.toLowerCase() === '✨ get prompt';
+
       if (!isPromptClick) {
         return { status: 'IGNORED', message: 'Not a prompt button click' };
       }
 
       let automationId = '';
-      if (postbackPayload.startsWith('GET_PROMPT_POSTBACK_')) {
-        automationId = postbackPayload.replace('GET_PROMPT_POSTBACK_', '');
+      if (cleanPayload.startsWith('GET_PROMPT_POSTBACK_')) {
+        automationId = cleanPayload.replace('GET_PROMPT_POSTBACK_', '');
       }
 
-      // Find automation by ID or fallback to latest ACTIVE automation for account
+      // Find automation — by ID first, then fallback to latest ACTIVE
       let automation = automationId
         ? await prisma.automation.findUnique({ where: { id: automationId }, include: { resource: true } })
-        : await prisma.automation.findFirst({ where: { instagramAccountId, status: 'ACTIVE' }, orderBy: { updatedAt: 'desc' }, include: { resource: true } });
+        : null;
 
       if (!automation) {
-        automation = await prisma.automation.findFirst({ where: { status: 'ACTIVE' }, orderBy: { updatedAt: 'desc' }, include: { resource: true } });
+        automation = await prisma.automation.findFirst({
+          where: { OR: [{ instagramAccountId }, { instagramAccountId: { not: '' } }], status: 'ACTIVE' },
+          orderBy: { updatedAt: 'desc' },
+          include: { resource: true },
+        });
       }
 
       if (!automation || automation.status !== 'ACTIVE') {
@@ -213,31 +236,63 @@ export class AutomationEngine {
       }
 
       const connection = await prisma.metaConnection.findFirst({
-        where: { OR: [{ instagramAccountId }, { facebookPageId: instagramAccountId }] },
+        where: { OR: [{ instagramAccountId }, { facebookPageId: instagramAccountId }, { instagramAccountId: automation.instagramAccountId }] },
       });
       if (!connection || connection.connectionStatus !== 'CONNECTED') {
         return { status: 'IGNORED', message: 'No connected Instagram account' };
       }
 
       const accessToken = decryptToken(connection.accessTokenEncrypted);
+      const realInstagramAccountId = connection.instagramAccountId;
 
-      // Fetch user profile safely
-      const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
-      const username = profile?.username || 'follower';
+      // CHECK FOLLOW STATUS in DB
+      const contact = await prisma.contact.findUnique({
+        where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
+      });
 
-      // Send actual prompt DM to user upon clicking Get Prompt button
+      const hasFollowed = contact?.followedAt != null;
+
+      if (!hasFollowed) {
+        // User has NOT clicked Follow yet — gate the prompt, send reminder
+        const warningText = `❌ Aapne abhi tak @${connection.instagramUsername} ko follow nahi kiya!\n\n` +
+          `Please pehle:\n1️⃣ "👉 Follow Profile" button dabao\n2️⃣ Follow karo\n3️⃣ Phir "✨ Get Prompt" click karo\n\nFollow karte hi prompt unlock ho jayega! 🔓`;
+        await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText: warningText, accessToken });
+        return { status: 'PROCESSED', message: 'Follow gate enforced: user has not followed yet' };
+      }
+
+      // User HAS followed — deliver the prompt
       const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
-      const messageText = (automation.dmMessageTemplate || 'Hi {{username}}! Here is the prompt you requested:\n\n{{resource_url}}')
+      if (!resourceValue) {
+        // No resource configured — send informational error
+        await InstagramMessagingService.sendDirectMessage({
+          recipientId: senderId,
+          messageText: `Hi! Aapne follow kiya, thank you! 🎉\n\nPrompt abhi set ho raha hai, thoda wait karein. Hum jald hi bhejenge! ⏳`,
+          accessToken,
+        });
+        return { status: 'PROCESSED', message: 'Prompt delivered but resource not configured' };
+      }
+
+      const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
+      const username = profile?.username || contact?.username || 'follower';
+
+      const messageText = (automation.dmMessageTemplate || 'Hi {{username}}! Aapka prompt yahan hai:\n\n{{resource_url}}')
         .replace(/\{\{username\}\}/g, username)
         .replace(/\{\{resource_url\}\}/g, resourceValue);
-        
+
       const dm = await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText, accessToken });
       if (dm.success) {
-        await prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } });
-        return { status: 'PROCESSED', message: 'Prompt sent to user successfully' };
+        // Mark prompt as sent in DB
+        await prisma.$transaction([
+          prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } }),
+          prisma.contact.update({
+            where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
+            data: { promptSentAt: new Date(), lastInteraction: new Date() },
+          }),
+        ]);
+        return { status: 'PROCESSED', message: 'Prompt delivered to follower successfully' };
       } else {
         await prisma.automation.update({ where: { id: automation.id }, data: { totalFailed: { increment: 1 } } });
-        return { status: 'FAILED', message: `Failed to send prompt DM: ${dm.errorMessage}` };
+        return { status: 'FAILED', message: `DM send failed: ${dm.errorMessage}` };
       }
     } catch (error: any) {
       return { status: 'FAILED', message: error.message || 'Error processing postback click' };

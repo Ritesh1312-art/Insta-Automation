@@ -142,4 +142,47 @@ export class WebhookService {
     }
     return events;
   }
+
+  public static parseReferralEvents(payload: any): Array<{
+    instagramAccountId: string;
+    senderId: string;
+    rawPayload: any;
+  }> {
+    const events: Array<any> = [];
+    if (!payload || !payload.entry) return events;
+    for (const entry of payload.entry) {
+      const instagramAccountId = entry.id;
+
+      // messaging_referrals fires when user clicks a web_url button in DM
+      if (entry.messaging) {
+        for (const msg of entry.messaging) {
+          if (msg.referral && msg.sender?.id) {
+            events.push({
+              instagramAccountId: msg.recipient?.id || instagramAccountId,
+              senderId: msg.sender.id,
+              rawPayload: payload,
+            });
+          }
+        }
+      }
+
+      // Also check changes array for referral events  
+      if (entry.changes) {
+        for (const change of entry.changes) {
+          if (change.field === 'messaging_referrals' && change.value) {
+            const val = change.value;
+            const senderId = val.sender?.id || val.from?.id;
+            if (senderId) {
+              events.push({
+                instagramAccountId: String(val.recipient?.id || instagramAccountId),
+                senderId: String(senderId),
+                rawPayload: payload,
+              });
+            }
+          }
+        }
+      }
+    }
+    return events;
+  }
 }
