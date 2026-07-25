@@ -19,6 +19,8 @@ import {
   LogOut,
 } from 'lucide-react';
 
+import KineticGrid from '@/components/KineticGrid';
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -64,9 +66,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ];
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col md:flex-row">
+    <div className="relative min-h-screen bg-[#09090B] text-slate-100 flex flex-col md:flex-row overflow-hidden">
+      {/* Interactive Kinetic Grid Background (Originkit) */}
+      <div className="fixed inset-0 z-0 pointer-events-auto opacity-35">
+        <KineticGrid
+          background="#09090B"
+          dotColor="#A855F7"
+          lineColor="#6366F1"
+          trailColor="#EC4899"
+          spacing={25}
+          radius={300}
+          strength={10}
+          trail={true}
+        />
+      </div>
+
       {/* Sidebar - Desktop */}
-      <aside className="hidden md:flex w-64 flex-col bg-slate-950 border-r border-slate-800 p-4 justify-between shrink-0">
+      <aside className="relative z-10 hidden md:flex w-64 flex-col bg-slate-950/80 backdrop-blur-xl border-r border-slate-800/80 p-4 justify-between shrink-0">
         <div>
           {/* Brand Logo */}
           <div className="flex items-center gap-3 px-3 py-4 mb-6 border-b border-slate-800">
@@ -190,7 +206,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
+      <main className="relative z-10 flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
     </div>
   );
 }
