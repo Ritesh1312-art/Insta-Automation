@@ -17,11 +17,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="facebook-domain-verification" content="x7cerzpt4dqxmiygdsptlkwa540f84" />
       </head>
-      <body className="min-h-screen bg-slate-50 antialiased selection:bg-fuchsia-500 selection:text-white">
+      <body className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-fuchsia-500 selection:text-white" suppressHydrationWarning>
         {children}
       </body>
     </html>
