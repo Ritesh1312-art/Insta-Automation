@@ -66,7 +66,8 @@ export class InstagramMessagingService {
 
   public static async sendPrivateTemplateReply(payload: { instagramAccountId: string; commentId: string; templatePayload: any; accessToken: string }): Promise<ApiResponse> {
     try {
-      const response = await fetch(`https://graph.facebook.com/${this.version}/me/messages`, {
+      const targetId = payload.instagramAccountId || 'me';
+      const response = await fetch(`https://graph.facebook.com/${this.version}/${targetId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${payload.accessToken}` },
         body: JSON.stringify({
@@ -81,9 +82,10 @@ export class InstagramMessagingService {
     }
   }
 
-  public static async sendDirectMessage(payload: { recipientId: string; messageText: string; accessToken: string }): Promise<ApiResponse> {
+  public static async sendDirectMessage(payload: { recipientId: string; messageText: string; accessToken: string; instagramAccountId?: string }): Promise<ApiResponse> {
     try {
-      const response = await fetch(`https://graph.facebook.com/${this.version}/me/messages`, {
+      const targetId = payload.instagramAccountId || 'me';
+      const response = await fetch(`https://graph.facebook.com/${this.version}/${targetId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${payload.accessToken}` },
         body: JSON.stringify({
