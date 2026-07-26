@@ -81,55 +81,75 @@ export class AutomationEngine {
     }
     if (isNewRun) await prisma.automation.update({ where: { id: automation.id }, data: { totalTriggers: { increment: 1 }, lastTriggeredAt: new Date() } });
     
-    // STEP 1 DM: Send "Follow + I've Followed" card (NO Get Prompt yet)
-    // Get Prompt only appears AFTER user confirms follow via "✅ I've Followed" postback
-    const igUsername = connection.instagramUsername || 'stuti.ritesh90';
-
-    // Step-1 card: only Follow button + "I've Followed" confirmation button
-    const step1Template = {
-      attachment: {
-        type: 'template',
-        payload: {
-          template_type: 'generic',
-          elements: [
-            {
-              title: `Hey @${event.commenterUsername || 'there'}! 🎁`,
-              subtitle: `Follow @${igUsername} to unlock your exclusive prompt! Once you follow, tap "✅ I've Followed" below.`,
-              buttons: [
-                {
-                  type: 'web_url',
-                  url: `https://www.instagram.com/${igUsername}/`,
-                  title: '👉 Follow Profile',
-                },
-                {
-                  type: 'postback',
-                  title: '✅ I\'ve Followed',
-                  payload: `FOLLOW_CONFIRMED_${automation.id}`,
-                },
-              ],
-            },
-          ],
-        },
-      },
-    };
-
-    // Send Step-1 Card via Private Reply
-    let dm = await InstagramMessagingService.sendPrivateTemplateReply({
-      instagramAccountId: event.instagramAccountId,
-      commentId: event.commentId,
-      templatePayload: step1Template,
-      accessToken: decryptToken(connection.accessTokenEncrypted),
+    // Check if commenter is an existing follower in our database
+    const existingContact = await prisma.contact.findUnique({
+      where: { instagramAccountId_igsid: { instagramAccountId: connection.instagramAccountId, igsid: event.commenterId } },
     });
 
-    // Fallback to plain text if template fails
-    if (!dm.success) {
-      const fallbackText = `Hey @${event.commenterUsername || 'there'}! 🎁\n\nTo get your exclusive prompt:\n1️⃣ Follow @${igUsername} on Instagram\n2️⃣ Come back to this DM and reply "DONE"\n\nYour prompt will unlock instantly! 🔓`;
+    const isExistingFollower = existingContact?.followedAt != null;
+    const igUsername = connection.instagramUsername || 'stuti.ritesh90';
+    const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
+    const promptMessageText = (automation.dmMessageTemplate || 'Hi {{username}}! Thanks for following @{{ig_username}}! Here is your prompt:\n\n{{resource_url}}')
+      .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
+      .replace(/\{\{ig_username\}\}/g, igUsername)
+      .replace(/\{\{resource_url\}\}/g, resourceValue);
+
+    let dm: any;
+
+    if (isExistingFollower) {
+      // 1A. FOLLOWER CASE: Send PROMPT DM DIRECTLY to existing follower!
       dm = await InstagramMessagingService.sendPrivateReply({
         instagramAccountId: event.instagramAccountId,
         commentId: event.commentId,
-        messageText: fallbackText,
+        messageText: promptMessageText,
         accessToken: decryptToken(connection.accessTokenEncrypted),
       });
+    } else {
+      // 1B. NON-FOLLOWER CASE: Send Step 1 Follow Gate Card (NO Get Prompt button yet)
+      const step1Template = {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'generic',
+            elements: [
+              {
+                title: `Hey @${event.commenterUsername || 'there'}! 🎁`,
+                subtitle: `Follow @${igUsername} to unlock your prompt! Once followed, tap "✅ I've Followed" below.`,
+                buttons: [
+                  {
+                    type: 'web_url',
+                    url: `https://www.instagram.com/${igUsername}/`,
+                    title: '👉 Follow Profile',
+                  },
+                  {
+                    type: 'postback',
+                    title: '✅ I\'ve Followed',
+                    payload: `FOLLOW_CONFIRMED_${automation.id}`,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      };
+
+      dm = await InstagramMessagingService.sendPrivateTemplateReply({
+        instagramAccountId: event.instagramAccountId,
+        commentId: event.commentId,
+        templatePayload: step1Template,
+        accessToken: decryptToken(connection.accessTokenEncrypted),
+      });
+
+      // Fallback to text if template reply is not accepted
+      if (!dm.success) {
+        const fallbackText = `Hey @${event.commenterUsername || 'there'}! 🎁\n\nTo unlock your prompt:\n1️⃣ Follow @${igUsername} on Instagram\n2️⃣ Reply "DONE" in this chat\n\nYour prompt link will be sent right after! 🔓`;
+        dm = await InstagramMessagingService.sendPrivateReply({
+          instagramAccountId: event.instagramAccountId,
+          commentId: event.commentId,
+          messageText: fallbackText,
+          accessToken: decryptToken(connection.accessTokenEncrypted),
+        });
+      }
     }
 
     // 2. Send Public Comment Reply if enabled
