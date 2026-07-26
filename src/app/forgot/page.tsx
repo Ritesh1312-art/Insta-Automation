@@ -35,6 +35,9 @@ export default function ForgotPage() {
       
       setIsSuccess(true);
       setMessage(data.message);
+      if (data.debugOtp) {
+        setOtp(data.debugOtp);
+      }
       setStep(2);
     } catch (err: any) {
       setMessage(err.message || 'An error occurred');
