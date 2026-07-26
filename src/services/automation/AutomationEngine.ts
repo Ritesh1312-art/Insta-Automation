@@ -253,47 +253,37 @@ export class AutomationEngine {
         // Record follow confirmation in DB
         await prisma.contact.upsert({
           where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
-          create: { instagramAccountId: realInstagramAccountId, igsid: senderId, followedAt: new Date() },
+          create: { instagramAccountId: realInstagramAccountId, igsid: senderId, followedAt: new Date(), lastInteraction: new Date() },
           update: { followedAt: new Date(), lastInteraction: new Date() },
         });
 
-        // Send Step-2 Card with "✨ Get Prompt" button NOW!
-        const step2Template = {
-          attachment: {
-            type: 'template',
-            payload: {
-              template_type: 'generic',
-              elements: [
-                {
-                  title: `🎉 Follow Verified!`,
-                  subtitle: `Thank you for following! Your prompt is now unlocked. Click below to get it! 🚀`,
-                  buttons: [
-                    {
-                      type: 'postback',
-                      title: '✨ Get Prompt',
-                      payload: `GET_PROMPT_POSTBACK_${automation.id}`,
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-        };
+        // DELIVER PROMPT DM INSTANTLY ON FOLLOW CONFIRMATION!
+        const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
+        const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
+        const username = profile?.username || 'follower';
+
+        const messageText = (automation.dmMessageTemplate || '🎉 Thank you for following @{{ig_username}}! Here is your prompt:\n\n{{resource_url}}')
+          .replace(/\{\{username\}\}/g, username)
+          .replace(/\{\{ig_username\}\}/g, connection.instagramUsername || 'stuti.ritesh90')
+          .replace(/\{\{resource_url\}\}/g, resourceValue || 'https://drive.google.com/');
 
         const dm = await InstagramMessagingService.sendDirectMessage({
           recipientId: senderId,
-          messageText: `🎉 Thank you for following @${connection.instagramUsername}! Your prompt is now unlocked.\n\nTap "✨ Get Prompt" below to receive it! 🚀`,
+          messageText,
           accessToken,
         });
 
-        await InstagramMessagingService.sendPrivateTemplateReply({
-          instagramAccountId: realInstagramAccountId,
-          commentId: '',
-          templatePayload: step2Template,
-          accessToken,
-        }).catch(() => null);
+        if (dm.success) {
+          await prisma.$transaction([
+            prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } }),
+            prisma.contact.update({
+              where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
+              data: { promptSentAt: new Date() },
+            }),
+          ]);
+        }
 
-        return { status: 'PROCESSED', message: 'Follow confirmed. Step 2 Get Prompt button unlocked and sent' };
+        return { status: 'PROCESSED', message: 'Follow confirmed & Prompt delivered instantly to user' };
       }
 
       // CASE 3: User taps "✨ Get Prompt" (GET_PROMPT_POSTBACK_${automation.id})
