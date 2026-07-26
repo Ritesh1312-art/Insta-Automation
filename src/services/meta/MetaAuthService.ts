@@ -24,7 +24,10 @@ export class MetaAuthService {
       'instagram_manage_comments',
       'instagram_manage_messages',
       'pages_show_list',
-      'pages_read_engagement'
+      'pages_read_engagement',
+      'pages_messaging',
+      'pages_manage_metadata',
+      'business_management'
     ].join(',');
     return `https://www.facebook.com/${graphApiVersion}/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${encodeURIComponent(state)}`;
   }
