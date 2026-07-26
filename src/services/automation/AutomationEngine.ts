@@ -312,14 +312,26 @@ export class AutomationEngine {
       const accessToken = decryptToken(connection.accessTokenEncrypted);
       const realInstagramAccountId = connection.instagramAccountId;
 
-      // Mark contact as interactive follower in DB
-      const contact = await prisma.contact.upsert({
+      // Check if user has followed (either clicked Follow Profile link or confirmed follow in DB)
+      const contact = await prisma.contact.findUnique({
         where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
-        create: { instagramAccountId: realInstagramAccountId, igsid: senderId, followedAt: new Date() },
-        update: { followedAt: new Date(), lastInteraction: new Date() },
       });
 
-      // Fetch user profile username for personalization
+      const hasFollowed = contact?.followedAt != null;
+
+      if (!hasFollowed) {
+        // User HAS NOT followed yet — send clear follow required warning message
+        const warningText = `🔒 Access Locked!\n\n` +
+          `Aapne abhi tak @${connection.instagramUsername} ko follow nahi kiya.\n\n` +
+          `Please:\n` +
+          `1️⃣ Upar "👉 Follow Profile" button par click karke profile follow karein!\n` +
+          `2️⃣ Uske baad dobara "✨ Get Prompt" click karein!\n\n` +
+          `Profile follow karte hi aapko automation wala prompt receive ho jayega! 😊`;
+        await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText: warningText, accessToken });
+        return { status: 'PROCESSED', message: 'Follow gate enforced: user has not followed yet' };
+      }
+
+      // User HAS followed — deliver the exact prompt message configured on the automation dashboard!
       const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
       const username = profile?.username || contact?.username || 'follower';
 
