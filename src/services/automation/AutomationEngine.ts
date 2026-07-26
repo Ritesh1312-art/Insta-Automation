@@ -273,7 +273,7 @@ export class AutomationEngine {
         return { status: 'PROCESSED', message: 'Follow confirmed. Step 2 Get Prompt button unlocked and sent' };
       }
 
-      // CASE 3: User taps "✨ Get Prompt" (GET_PROMPT_POSTBACK_${automation.id})
+      // CASE 2: User taps "✨ Get Prompt" (GET_PROMPT_POSTBACK_${automation.id})
       const isPromptClick = cleanPayload.startsWith('GET_PROMPT_POSTBACK_') || cleanPayload.toLowerCase().includes('get prompt') || cleanPayload.toLowerCase() === '✨ get prompt';
 
       if (!isPromptClick) {
@@ -312,29 +312,18 @@ export class AutomationEngine {
       const accessToken = decryptToken(connection.accessTokenEncrypted);
       const realInstagramAccountId = connection.instagramAccountId;
 
-      // CHECK FOLLOW STATUS in DB
-      const contact = await prisma.contact.findUnique({
+      // Mark contact as interactive follower in DB
+      const contact = await prisma.contact.upsert({
         where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
+        create: { instagramAccountId: realInstagramAccountId, igsid: senderId, followedAt: new Date() },
+        update: { followedAt: new Date(), lastInteraction: new Date() },
       });
 
-      const hasFollowed = contact?.followedAt != null;
-
-      if (!hasFollowed) {
-        // User has NOT followed yet — send clear follow required message
-        const warningText = `🔒 Access Locked!\n\n` +
-          `Aapne abhi tak @${connection.instagramUsername} ko follow nahi kiya.\n\n` +
-          `Please:\n` +
-          `1️⃣ Upar "👉 Follow Profile" button par click karke profile follow karein!\n` +
-          `2️⃣ Uske baad dobara "✨ Get Prompt" click karein!\n\n` +
-          `Profile follow karte hi aapko automation wala prompt receive ho jayega! 😊`;
-        await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText: warningText, accessToken });
-        return { status: 'PROCESSED', message: 'Follow gate enforced: user has not followed yet' };
-      }
-
-      // User HAS followed — deliver the exact prompt message configured on the automation dashboard!
+      // Fetch user profile username for personalization
       const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
       const username = profile?.username || contact?.username || 'follower';
 
+      // Format the exact automation message set on the dashboard
       const rawTemplate = automation.dmMessageTemplate || automation.resource?.textContent || automation.resource?.url || 'Hi {{username}}! Thanks for following @stuti.ritesh90!';
       const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
 
@@ -342,9 +331,9 @@ export class AutomationEngine {
         .replace(/\{\{username\}\}/g, username)
         .replace(/\{\{resource_url\}\}/g, resourceValue);
 
+      // Deliver the prompt DM to the user!
       const dm = await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText, accessToken });
       if (dm.success) {
-        // Mark prompt as sent in DB
         await prisma.$transaction([
           prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } }),
           prisma.contact.update({
@@ -352,7 +341,7 @@ export class AutomationEngine {
             data: { promptSentAt: new Date(), lastInteraction: new Date() },
           }),
         ]);
-        return { status: 'PROCESSED', message: 'Prompt delivered to follower successfully' };
+        return { status: 'PROCESSED', message: 'Prompt delivered to user successfully' };
       } else {
         await prisma.automation.update({ where: { id: automation.id }, data: { totalFailed: { increment: 1 } } });
         return { status: 'FAILED', message: `DM send failed: ${dm.errorMessage}` };
