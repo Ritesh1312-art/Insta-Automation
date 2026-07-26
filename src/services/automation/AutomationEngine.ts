@@ -113,9 +113,15 @@ export class AutomationEngine {
       accessToken: decryptToken(connection.accessTokenEncrypted),
     });
 
-    // Fallback to plain text if template is not supported
+    // Fallback: If button template not supported, send clear 2-step DM with profile link
     if (!dm.success) {
-      const fallbackText = `Hey @${event.commenterUsername || 'there'}! 😊\n\nTap below and I'll send you the access in just a moment ✨\n\nReply "ACCESS" to receive your prompt! 🔓`;
+      const fallbackText =
+        `Hey @${event.commenterUsername || 'there'}! 😊\n\n` +
+        `I'm so glad you're here - thanks a ton for stopping by! 🙏\n\n` +
+        `To get your free access:\n` +
+        `1️⃣ Follow my profile: https://www.instagram.com/${igUsername}/\n` +
+        `2️⃣ Reply "DONE" once you've followed!\n\n` +
+        `I'll send you the access right away! ✨`;
       dm = await InstagramMessagingService.sendPrivateReply({
         instagramAccountId: event.instagramAccountId,
         commentId: event.commentId,
