@@ -70,11 +70,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         emailSent,
-        debugOtp: emailSent ? undefined : generatedOtp,
-        debugMode: !emailSent,
         message: emailSent
-          ? 'OTP sent to your email successfully.'
-          : `Aapka 6-Digit OTP Code hai: ${generatedOtp} (SMTP email configured nahi hai, isliye OTP screen par show kar diya gaya hai). Niche OTP enter karke naya password set karein!`,
+          ? 'Verification OTP has been sent to your registered email address.'
+          : 'OTP request received. (Please configure SMTP_HOST/SMTP_USER in .env for email delivery).',
       });
     }
 
