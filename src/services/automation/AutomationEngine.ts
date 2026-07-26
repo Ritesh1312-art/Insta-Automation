@@ -331,20 +331,14 @@ export class AutomationEngine {
         return { status: 'PROCESSED', message: 'Follow gate enforced: user has not followed yet' };
       }
 
-      // User HAS followed — deliver the prompt
-      const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
-      if (!resourceValue) {
-        // Fallback message if resource object is empty
-        const fallbackPrompt = automation.dmMessageTemplate || 'Hi {{username}}! Here is your prompt:\n\nhttps://drive.google.com/';
-        const messageText = fallbackPrompt.replace(/\{\{username\}\}/g, contact?.username || 'follower');
-        await InstagramMessagingService.sendDirectMessage({ recipientId: senderId, messageText, accessToken });
-        return { status: 'PROCESSED', message: 'Prompt delivered using fallback template' };
-      }
-
+      // User HAS followed — deliver the exact prompt message configured on the automation dashboard!
       const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
       const username = profile?.username || contact?.username || 'follower';
 
-      const messageText = (automation.dmMessageTemplate || 'Hi {{username}}! Aapka prompt yahan hai:\n\n{{resource_url}}')
+      const rawTemplate = automation.dmMessageTemplate || automation.resource?.textContent || automation.resource?.url || 'Hi {{username}}! Thanks for following @stuti.ritesh90!';
+      const resourceValue = automation.resource?.url || automation.resource?.textContent || '';
+
+      const messageText = rawTemplate
         .replace(/\{\{username\}\}/g, username)
         .replace(/\{\{resource_url\}\}/g, resourceValue);
 
