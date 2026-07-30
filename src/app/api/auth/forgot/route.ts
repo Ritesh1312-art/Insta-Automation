@@ -34,12 +34,12 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Try sending OTP via Email (SMTP configuration)
-      const smtpHost = process.env.SMTP_HOST;
-      const smtpPort = process.env.SMTP_PORT;
-      const smtpUser = process.env.SMTP_USER;
-      const smtpPass = process.env.SMTP_PASSWORD;
-      const smtpFrom = process.env.SMTP_FROM || 'noreply@instadm.com';
+      // Try sending OTP via Email (SMTP configuration with default Gmail fallbacks)
+      const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+      const smtpPort = process.env.SMTP_PORT || '465';
+      const smtpUser = process.env.SMTP_USER || 'ritesh.gupta131290@gmail.com';
+      const smtpPass = process.env.SMTP_PASSWORD || 'gvieclncokjcovkz';
+      const smtpFrom = process.env.SMTP_FROM || 'ritesh.gupta131290@gmail.com';
 
       let emailSent = false;
       let emailError = '';
