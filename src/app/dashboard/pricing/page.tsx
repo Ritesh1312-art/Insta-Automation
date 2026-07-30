@@ -39,9 +39,8 @@ export default function PricingPage() {
         return;
       }
 
-      const options = {
+      const options: any = {
         key: data.keyId,
-        subscription_id: data.subscriptionId,
         name: 'InstaPulse ⚡',
         description: `Upgrade to ${planType === 'PRO_CREATOR' ? 'Pro Creator (₹299/mo)' : 'VIP Unlimited (₹699/mo)'}`,
         image: 'https://cdn-icons-png.flaticon.com/512/3670/3670125.png',
@@ -68,7 +67,7 @@ export default function PricingPage() {
               email: 'ritesh.gupta131290@gmail.com',
               planType,
               razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_subscription_id: response.razorpay_subscription_id,
+              razorpay_subscription_id: response.razorpay_subscription_id || response.razorpay_order_id,
               razorpay_signature: response.razorpay_signature,
             }),
           });
@@ -88,6 +87,13 @@ export default function PricingPage() {
           color: '#8B5CF6',
         },
       };
+
+      if (data.isOrder) {
+        options.order_id = data.subscriptionId;
+        options.amount = data.amount;
+      } else {
+        options.subscription_id = data.subscriptionId;
+      }
 
       const rzp = new (window as any).Razorpay(options);
       rzp.open();

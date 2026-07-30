@@ -60,12 +60,12 @@ export class AutomationEngine {
     let automation = automations.find((candidate) => KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, candidate.triggerType as any).matched);
     let matchedKeyword = automation ? KeywordMatcher.isMatch(event.commentText || '', automation.keywords, automation.matchingMode as any, automation.triggerType as any).matchedKeyword || '' : '';
     if (!automation) return this.finishEvent(eventId, 'IGNORED', 'No active automation matched this comment');
-    // Check User Subscription DM Quota (Free plan: 30 DMs/month)
+    // Check User Subscription DM Quota (ADMIN & VIP_UNLIMITED get 100% UNLIMITED BYPASS)
     const user = await prisma.user.findFirst({
       where: { OR: [{ id: automation.userId }, { metaConnections: { some: { instagramAccountId: realIgAccountId } } }] }
     });
 
-    if (user) {
+    if (user && user.role !== 'ADMIN' && user.plan !== 'VIP_UNLIMITED' && user.email !== 'ritesh.gupta131290@gmail.com') {
       const quota = user.monthlyDmQuota ?? 30;
       if (user.plan === 'FREE' && user.dmsUsedThisMonth >= quota) {
         return this.finishEvent(eventId, 'IGNORED', `Free Plan limit reached (${quota} DMs/month). Please upgrade to Pro Plan for ₹299/month!`);
