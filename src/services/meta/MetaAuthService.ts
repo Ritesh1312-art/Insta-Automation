@@ -23,12 +23,8 @@ export class MetaAuthService {
       'instagram_basic',
       'instagram_manage_comments',
       'instagram_manage_messages',
-      'instagram_business_basic',
-      'instagram_business_manage_messages',
       'pages_show_list',
       'pages_read_engagement',
-      'pages_messaging',
-      'pages_manage_metadata',
       'business_management',
       'public_profile'
     ].join(',');
