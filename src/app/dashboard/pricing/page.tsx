@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 
 export default function PricingPage() {
-  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [userStatus, setUserStatus] = useState({ plan: 'FREE', dmsUsed: 0, quota: 30 });
   const [adminUpiId, setAdminUpiId] = useState('7500002329@ybl');
   const [adminQrCodeUrl, setAdminQrCodeUrl] = useState('');
@@ -91,13 +90,13 @@ export default function PricingPage() {
       {/* Header */}
       <div className="text-center mb-12">
         <span className="bg-purple-500/10 text-purple-400 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider">
-          ⚡ InstaPulse Direct UPI Monetization
+          ⚡ InstaPulse Direct Bank UPI (No Razorpay / 0% Fee)
         </span>
         <h1 className="text-4xl font-extrabold text-white mt-3">
           Choose Your InstaPulse Plan
         </h1>
         <p className="text-slate-400 mt-2 max-w-xl mx-auto text-sm">
-          Pay 100% directly via PhonePe, Google Pay, or Paytm. 0% Gateway Fees. Instant 12-Digit UTR Activation!
+          Pay 100% directly to Admin Bank Account via PhonePe, Google Pay, or Paytm. 0% Gateway Fees. Instant 12-Digit UTR Activation!
         </p>
 
         {/* Current Quota Status Card */}
@@ -188,7 +187,7 @@ export default function PricingPage() {
             onClick={() => openUpiModal('PRO_CREATOR')}
             className="mt-8 w-full py-3.5 rounded-xl font-bold bg-purple-600 hover:bg-purple-500 text-white transition text-sm shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2"
           >
-            Pay ₹299 via Direct UPI (PhonePe / GPay)
+            Pay ₹299 via Direct UPI QR
           </button>
         </div>
 
@@ -225,7 +224,7 @@ export default function PricingPage() {
             onClick={() => openUpiModal('VIP_UNLIMITED')}
             className="mt-8 w-full py-3 rounded-xl font-bold bg-slate-800 hover:bg-slate-700 text-white transition text-sm flex items-center justify-center gap-2"
           >
-            Pay ₹699 via Direct UPI
+            Pay ₹699 via Direct UPI QR
           </button>
         </div>
 
@@ -234,12 +233,12 @@ export default function PricingPage() {
       {/* DIRECT UPI MODAL WITH Dynamic QR Code & 12-Digit UTR Input */}
       {selectedPlan && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-purple-500/40 rounded-3xl p-6 max-w-md w-full shadow-2xl relative space-y-5 animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-950 border border-purple-500/50 rounded-3xl p-6 max-w-md w-full shadow-2xl relative space-y-5">
             
             {/* Close Button */}
             <button
               onClick={() => setSelectedPlan(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg bg-slate-900 border border-slate-800"
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg bg-slate-900 border border-slate-800 font-bold text-sm"
             >
               ✕
             </button>
@@ -247,10 +246,10 @@ export default function PricingPage() {
             {/* Modal Title */}
             <div className="text-center">
               <span className="bg-purple-500/20 text-purple-300 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                Direct Bank Payment (0% Fee)
+                Direct Bank Payment (0% Gateway Fee)
               </span>
               <h2 className="text-2xl font-black text-white mt-2">
-                Pay ₹{selectedAmount} via UPI
+                Pay ₹{selectedAmount} via Direct UPI
               </h2>
               <p className="text-xs text-slate-400 mt-1">
                 Scan QR Code or pay directly to Admin UPI ID below:
@@ -269,7 +268,7 @@ export default function PricingPage() {
             {/* Copy UPI ID Box */}
             <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
               <div>
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">Admin UPI ID</span>
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">Admin PhonePe / GPay / Paytm UPI ID</span>
                 <span className="text-sm font-bold font-mono text-purple-300">{adminUpiId}</span>
               </div>
               <button
@@ -281,11 +280,11 @@ export default function PricingPage() {
             </div>
 
             {/* Step-by-Step Instructions in Hinglish */}
-            <div className="bg-purple-950/30 border border-purple-800/40 rounded-xl p-3.5 space-y-1.5 text-xs text-slate-200">
+            <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl p-3.5 space-y-1.5 text-xs text-slate-200">
               <h4 className="font-bold text-purple-300 flex items-center gap-1 text-xs">
-                📌 Payment & UTR Instructions:
+                📌 Payment & 12-Digit UTR Instructions:
               </h4>
-              <p>1️⃣ QR Code scan karein ya UPI ID copy karke PhonePe / GPay / Paytm se exact <strong>₹{selectedAmount}</strong> pay karein.</p>
+              <p>1️⃣ Upar diya QR Code scan karein ya UPI ID copy karke PhonePe / GPay / Paytm se exact <strong>₹{selectedAmount}</strong> pay karein.</p>
               <p>2️⃣ Payment complete hone ke baad receipt se <strong>12-digit UTR / Ref No.</strong> copy karein.</p>
               <p>3️⃣ Niche 12-digit UTR No. paste karke Confirm button click karein!</p>
             </div>
