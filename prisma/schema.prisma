@@ -8,17 +8,23 @@ generator client {
 }
 
 model User {
-  id              String           @id @default(uuid())
-  email           String           @unique
-  passwordHash    String
-  name            String?
-  role            String           @default("USER")
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  metaConnections MetaConnection[]
-  automations     Automation[]
-  resources       Resource[]
-  auditLogs       AuditLog[]
+  id                     String           @id @default(uuid())
+  email                  String           @unique
+  passwordHash           String
+  name                   String?
+  role                   String           @default("USER")
+  plan                   String           @default("FREE") // FREE, PRO_CREATOR, VIP_UNLIMITED
+  monthlyDmQuota         Int              @default(30) // Exactly 30 Free DMs per month for FREE plan
+  dmsUsedThisMonth       Int              @default(0)
+  razorpaySubscriptionId String?
+  razorpayCustomerId     String?
+  subscriptionStatus     String           @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  metaConnections        MetaConnection[]
+  automations            Automation[]
+  resources              Resource[]
+  auditLogs              AuditLog[]
 }
 
 model MetaConnection {

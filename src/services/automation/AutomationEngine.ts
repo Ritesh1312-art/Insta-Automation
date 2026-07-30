@@ -60,12 +60,18 @@ export class AutomationEngine {
     let automation = automations.find((candidate) => KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, candidate.triggerType as any).matched);
     let matchedKeyword = automation ? KeywordMatcher.isMatch(event.commentText || '', automation.keywords, automation.matchingMode as any, automation.triggerType as any).matchedKeyword || '' : '';
     if (!automation) return this.finishEvent(eventId, 'IGNORED', 'No active automation matched this comment');
-    if (automation.ignoreOwnerComments && event.commenterUsername === connection.instagramUsername) return this.finishEvent(eventId, 'IGNORED', 'Owner comment ignored');
+    // Check User Subscription DM Quota (Free plan: 30 DMs/month)
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ id: automation.userId }, { metaConnections: { some: { instagramAccountId: realIgAccountId } } }] }
+    });
 
-    if (automation.oneDeliveryPerUser) {
-      const priorDelivery = await prisma.automationRun.findFirst({ where: { automationId: automation.id, status: 'API_ACCEPTED', webhookEvent: { commenterId: event.commenterId } } });
-      if (priorDelivery) return this.finishEvent(eventId, 'IGNORED', 'One delivery per user is enabled');
+    if (user) {
+      const quota = user.monthlyDmQuota ?? 30;
+      if (user.plan === 'FREE' && user.dmsUsedThisMonth >= quota) {
+        return this.finishEvent(eventId, 'IGNORED', `Free Plan limit reached (${quota} DMs/month). Please upgrade to Pro Plan for ₹299/month!`);
+      }
     }
+
     const idempotencyKey = `${event.instagramAccountId}:${event.commentId}:${automation.id}`;
     let run;
     let isNewRun = false;
@@ -151,6 +157,7 @@ export class AutomationEngine {
       prisma.automationRun.update({ where: { id: run.id }, data: { status: 'API_ACCEPTED', dmStatus: 'SENT', dmResponseId: dm.responseId, publicReplyStatus, publicReplyId, executedAt: new Date() } }),
       prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 }, lastTriggeredAt: new Date() } }),
       prisma.contact.upsert({ where: { instagramAccountId_igsid: { instagramAccountId: event.instagramAccountId, igsid: event.commenterId } }, create: { instagramAccountId: event.instagramAccountId, igsid: event.commenterId, username: event.commenterUsername }, update: { username: event.commenterUsername, lastInteraction: new Date(), totalInteractions: { increment: 1 } } }),
+      prisma.user.updateMany({ where: { OR: [{ id: automation.userId }, { metaConnections: { some: { instagramAccountId: realIgAccountId } } }] }, data: { dmsUsedThisMonth: { increment: 1 } } }),
       prisma.webhookEvent.update({ where: { id: event.id }, data: { status: 'PROCESSED', processedAt: new Date(), errorDetails: null, nextRetryAt: null, processingStartedAt: null } }),
     ]);
     return { status: 'PROCESSED', message: 'Private reply accepted by Meta', automationRunId: run.id };

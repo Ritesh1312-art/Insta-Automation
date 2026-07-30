@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   LogOut,
+  CreditCard,
 } from 'lucide-react';
 
 import KineticGrid from '@/components/KineticGrid';
@@ -61,6 +62,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Automations', href: '/dashboard/automations', icon: Zap },
     { name: 'Instagram Content', href: '/dashboard/content', icon: Film },
     { name: 'Resources', href: '/dashboard/resources', icon: FolderDown },
+    { name: 'Pricing & Plans ⚡', href: '/dashboard/pricing', icon: CreditCard },
     { name: 'Activity & Logs', href: '/dashboard/logs', icon: Activity },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];
@@ -86,14 +88,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div>
           {/* Brand Logo */}
           <div className="flex items-center gap-3 px-3 py-4 mb-6 border-b border-slate-800">
-            <div className="w-10 h-10 rounded-xl gradient-ig flex items-center justify-center shadow-lg shadow-fuchsia-500/20">
-              <Instagram className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 rounded-xl gradient-ig flex items-center justify-center shadow-lg shadow-purple-500/30">
+              <Zap className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-none bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-                InstaDM Auto
+              <h1 className="font-extrabold text-lg leading-none bg-gradient-to-r from-white via-purple-200 to-purple-400 bg-clip-text text-transparent">
+                InstaPulse ⚡
               </h1>
-              <span className="text-xs text-slate-400 font-mono">v1.0 Meta Official</span>
+              <span className="text-[11px] text-purple-400 font-mono font-medium">Meta Official Graph API</span>
             </div>
           </div>
 
