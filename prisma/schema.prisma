@@ -8,23 +8,40 @@ generator client {
 }
 
 model User {
-  id                     String           @id @default(uuid())
-  email                  String           @unique
+  id                     String             @id @default(uuid())
+  email                  String             @unique
   passwordHash           String
   name                   String?
-  role                   String           @default("USER")
-  plan                   String           @default("FREE") // FREE, PRO_CREATOR, VIP_UNLIMITED
-  monthlyDmQuota         Int              @default(30) // Exactly 30 Free DMs per month for FREE plan
-  dmsUsedThisMonth       Int              @default(0)
+  role                   String             @default("USER")
+  plan                   String             @default("FREE") // FREE, PRO_CREATOR, VIP_UNLIMITED
+  monthlyDmQuota         Int                @default(30) // Exactly 30 Free DMs per month for FREE plan
+  dmsUsedThisMonth       Int                @default(0)
+  adminUpiId             String?            // Admin's PhonePe/Paytm/GPay UPI ID
+  adminQrCodeUrl         String?            // Admin's custom UPI QR Code image URL
   razorpaySubscriptionId String?
   razorpayCustomerId     String?
-  subscriptionStatus     String           @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  subscriptionStatus     String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
   metaConnections        MetaConnection[]
   automations            Automation[]
   resources              Resource[]
   auditLogs              AuditLog[]
+  directUpiPayments      DirectUpiPayment[]
+}
+
+model DirectUpiPayment {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userEmail  String
+  planType   String   // PRO_CREATOR, VIP_UNLIMITED
+  amount     Float    // 299, 699
+  utrNumber  String   // 12-digit UTR/Ref Number
+  status     String   @default("VERIFIED") // VERIFIED, PENDING_REVIEW, REJECTED
+  approvedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model MetaConnection {

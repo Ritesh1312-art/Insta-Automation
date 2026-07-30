@@ -25,6 +25,39 @@ export default function SettingsPage() {
     }
   };
 
+  const [adminUpiId, setAdminUpiId] = useState('7500002329@ybl');
+  const [adminQrCodeUrl, setAdminQrCodeUrl] = useState('');
+  const [upiSaveStatus, setUpiSaveStatus] = useState('');
+
+  React.useEffect(() => {
+    fetch('/api/admin/upi-settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.adminUpiId) setAdminUpiId(data.adminUpiId);
+        if (data.adminQrCodeUrl) setAdminQrCodeUrl(data.adminQrCodeUrl);
+      })
+      .catch(() => null);
+  }, []);
+
+  const saveUpiSettings = async () => {
+    try {
+      setUpiSaveStatus('Saving...');
+      const res = await fetch('/api/admin/upi-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminUpiId, adminQrCodeUrl }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUpiSaveStatus('✅ Admin UPI ID & Settings saved successfully!');
+      } else {
+        setUpiSaveStatus(`❌ ${data.error || 'Failed to save UPI settings'}`);
+      }
+    } catch (err: any) {
+      setUpiSaveStatus(`❌ ${err.message || 'Error saving UPI settings'}`);
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       <div>
@@ -32,6 +65,63 @@ export default function SettingsPage() {
           <Settings className="w-6 h-6 text-fuchsia-500" /> Platform Settings & Meta Developer Guide
         </h1>
         <p className="text-slate-400 text-sm">System environment configuration and Meta App setup guide.</p>
+      </div>
+
+      {/* Admin Direct UPI Payment Settings Card */}
+      <div className="bg-gradient-to-br from-slate-950 to-purple-950/40 p-6 rounded-2xl border border-purple-500/30 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            📲 Direct UPI Payment Settings (100% Direct Bank Money)
+          </h2>
+          <span className="bg-purple-500/20 text-purple-300 text-xs px-2.5 py-1 rounded-full font-semibold">
+            0% Gateway Fees
+          </span>
+        </div>
+        <p className="text-xs text-slate-300">
+          Enter your personal PhonePe, Paytm, or Google Pay UPI ID. All user payments (₹299 / ₹699) will be sent directly to your bank account via this UPI ID!
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">
+              Admin UPI ID (PhonePe / GPay / Paytm / BHIM):
+            </label>
+            <input
+              type="text"
+              value={adminUpiId}
+              onChange={(e) => setAdminUpiId(e.target.value)}
+              placeholder="e.g. 7500002329@ybl or ritesh@paytm"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
+            />
+            <p className="text-[11px] text-slate-400 mt-1">This UPI ID is displayed on customer checkout & scan QR code.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">
+              Custom UPI QR Code Image URL (Optional):
+            </label>
+            <input
+              type="text"
+              value={adminQrCodeUrl}
+              onChange={(e) => setAdminQrCodeUrl(e.target.value)}
+              placeholder="https://... (Leave blank to use auto-generated QR code)"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
+            />
+            <p className="text-[11px] text-slate-400 mt-1">If blank, InstaPulse automatically generates dynamic UPI QR code.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 pt-2">
+          <button
+            onClick={saveUpiSettings}
+            className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-lg shadow-purple-600/30 transition-all flex items-center gap-2"
+          >
+            💾 Save Admin UPI Settings
+          </button>
+          {upiSaveStatus && (
+            <span className="text-xs font-semibold text-purple-300">{upiSaveStatus}</span>
+          )}
+        </div>
       </div>
 
       {/* Account & Session Section */}
