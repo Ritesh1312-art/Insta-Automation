@@ -26,9 +26,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [stats, setStats] = useState<any>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     fetchStats();
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => setIsAdmin(data.user?.role === 'ADMIN'))
+      .catch(() => setIsAdmin(false));
   }, [pathname]);
 
   const fetchStats = async () => {

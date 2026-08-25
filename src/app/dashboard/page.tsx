@@ -202,6 +202,14 @@ export default function DashboardOverview() {
       )}
 
 
+      <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-sm text-slate-300">
+        Plan <strong className="text-white">{stats?.plan || 'FREE'}</strong>
+        {' · '}
+        {stats?.dmsUsedThisMonth || 0}/{stats?.monthlyDmQuota || 30} DMs used this cycle
+        {' · '}
+        <Link href="/dashboard/pricing" className="text-fuchsia-400 hover:text-fuchsia-300">Upgrade</Link>
+      </div>
+
       {/* Metrics Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <div className="bg-slate-950 p-5 rounded-xl border border-slate-800">

@@ -15,6 +15,7 @@ export default function AutomationsPage() {
   const [keywordsText, setKeywordsText] = useState('PROMPT');
   const [customPostName, setCustomPostName] = useState('');
   const [triggerOption, setTriggerOption] = useState('EXACT'); // EXACT, CASE_SENSITIVE, ANY_COMMENT
+  const [followGateEnabled, setFollowGateEnabled] = useState(true);
 
   useEffect(() => {
     fetchData();
@@ -104,6 +105,7 @@ export default function AutomationsPage() {
           dmMessageTemplate,
           publicReplyEnabled: true,
           publicReplyTemplates: ['Sent! Check DMs 📩', 'Done! Check your inbox 🚀'],
+          followGateEnabled,
           status: 'ACTIVE',
         }),
       });
@@ -395,6 +397,16 @@ export default function AutomationsPage() {
                   </div>
                 )}
               </div>
+
+              <label className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                <input type="checkbox" checked={followGateEnabled} onChange={(e) => setFollowGateEnabled(e.target.checked)} className="mt-1" />
+                <span>
+                  <span className="block font-semibold text-slate-200">Follow-gate before resource</span>
+                  <span className="text-[11px] text-slate-400">
+                    Comment gets a Follow + I Followed card first. Instagram cannot verify the follow. Confirm is honor-system, then the resource is sent.
+                  </span>
+                </span>
+              </label>
 
               {/* STEP 3: Dedicated Prompt Text Box */}
               <div className="pt-2 border-t border-slate-800">
