@@ -7,14 +7,14 @@ export function publicUpiConfig() {
 }
 
 export function buildUpiUri(params: { upiId: string; payeeName: string; amount: number; note?: string }) {
-  const search = new URLSearchParams({
-    pa: params.upiId,
-    pn: params.payeeName,
-    am: String(params.amount),
-    cu: 'INR',
-    tn: params.note || 'InstaDM plan payment',
-  });
-  return `upi://pay?${search.toString()}`;
+  const parts = [
+    `pa=${encodeURIComponent(params.upiId.trim())}`,
+    `pn=${encodeURIComponent(params.payeeName.trim() || 'InstaDM Auto')}`,
+    `am=${encodeURIComponent(String(params.amount))}`,
+    'cu=INR',
+    `tn=${encodeURIComponent(params.note || 'InstaDM plan payment')}`,
+  ];
+  return `upi://pay?${parts.join('&')}`;
 }
 
 export function isValidUtr(value: string) {

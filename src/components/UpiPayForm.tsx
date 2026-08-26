@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import type { Plan } from '@/lib/plans';
 import { buildUpiUri } from '@/lib/upi';
 
@@ -24,12 +24,18 @@ export default function UpiPayForm({
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [qrFailed, setQrFailed] = useState(false);
+
+  useEffect(() => {
+    setQrFailed(false);
+  }, [plan.id, qrCodeUrl, upiId]);
 
   const upiUri = useMemo(
     () => (upiId ? buildUpiUri({ upiId, payeeName, amount: plan.priceInr, note: `InstaDM ${plan.name}` }) : ''),
     [upiId, payeeName, plan]
   );
-  const qrSrc = qrCodeUrl || (upiUri ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiUri)}` : '');
+  const autoQrSrc = `/api/billing/upi-qr?plan=${encodeURIComponent(plan.id)}`;
+  const qrSrc = qrCodeUrl || autoQrSrc;
 
   const copyUpi = async () => {
     if (!upiId) return;
@@ -75,17 +81,25 @@ export default function UpiPayForm({
         <p className="text-xs uppercase tracking-wide text-fuchsia-300">Pay exactly ₹{plan.priceInr}</p>
         <p className="mt-1 text-lg font-bold text-white">{plan.name} · {plan.quotaLabel}</p>
         <p className="mt-2 text-xs text-slate-400">
-          Pay from PhonePe, GPay, or Paytm. Then submit the receipt UTR. The plan stays pending until an admin matches the credit in the bank/UPI app.
+          Scan the auto-generated QR or open your UPI app. Then submit the receipt UTR. The plan stays pending until an admin matches the credit.
         </p>
       </div>
 
       {upiId ? (
         <>
-          {qrSrc && (
-            <div className="mx-auto flex h-44 w-44 items-center justify-center rounded-2xl bg-white p-3">
-              <img src={qrSrc} alt="UPI QR" className="h-full w-full object-contain" />
+          {!qrFailed && (
+            <div className="mx-auto flex h-48 w-48 flex-col items-center justify-center rounded-2xl bg-white p-3">
+              <img
+                src={qrSrc}
+                alt={`Pay ₹${plan.priceInr} to ${payeeName}`}
+                className="h-full w-full object-contain"
+                onError={() => setQrFailed(true)}
+              />
             </div>
           )}
+          <p className="text-center text-[11px] text-slate-500">
+            Auto QR · {payeeName} · ₹{plan.priceInr} locked in the code
+          </p>
           <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
             <div>
               <p className="text-[11px] uppercase text-slate-500">Pay to</p>
@@ -96,10 +110,18 @@ export default function UpiPayForm({
               {copied ? 'Copied' : 'Copy UPI'}
             </button>
           </div>
+          {upiUri && (
+            <a
+              href={upiUri}
+              className="block rounded-xl border border-slate-700 bg-slate-900 py-3 text-center text-sm font-semibold text-white"
+            >
+              Open UPI app (PhonePe / GPay / Paytm)
+            </a>
+          )}
         </>
       ) : (
         <p className="rounded-xl border border-amber-700/50 bg-amber-950/40 p-3 text-sm text-amber-200">
-          Admin UPI ID is not configured yet. Set UPI_ID in environment variables or save it in Settings.
+          Set <code>UPI_ID</code> and <code>UPI_PAYEE_NAME</code> in Vercel env, or save the UPI ID in Settings. The QR is generated automatically — no image upload needed.
         </p>
       )}
 

@@ -37,7 +37,7 @@ Copy `.env.example` to `.env` / Vercel project settings.
 | `META_VERIFY_TOKEN` | Webhook verify token (must match Meta dashboard) |
 | `META_GRAPH_API_VERSION` | e.g. `v21.0` |
 | `META_REDIRECT_URI` | `https://YOUR_DOMAIN/api/auth/meta/callback` |
-| `UPI_ID` / `UPI_PAYEE_NAME` | Shown on checkout |
+| `UPI_ID` / `UPI_PAYEE_NAME` | Checkout payee. QR is auto-generated from these — no image upload |
 
 ## Deploy on Vercel
 
@@ -70,7 +70,7 @@ Point a process supervisor at `npm start`. Schedule `GET /api/jobs/process-webho
 
 ## Payments
 
-Checkout is **direct UPI**. Submitting a UTR creates `PENDING_REVIEW`. An admin opens **UPI reviews** and approves only after the credit is visible in the bank/UPI app. Plans are never auto-activated from a typed reference number.
+Checkout is **direct UPI**. Set `UPI_ID` and `UPI_PAYEE_NAME` (or save the UPI ID in Settings). `/api/billing/upi-qr?plan=PREMIUM` builds an `upi://pay` QR with the exact plan amount. Submitting a UTR creates `PENDING_REVIEW`. An admin opens **UPI reviews** and approves only after the credit is visible in the bank/UPI app. Plans are never auto-activated from a typed reference number.
 
 ## Policy notes
 

@@ -2,7 +2,7 @@ REAL META + UPI DEPLOYMENT CHECKLIST
 
 1. Copy .env.example into Vercel / host env. Generate unique AUTH_SECRET, ENCRYPTION_KEY, CRON_SECRET, SETUP_TOKEN, META_VERIFY_TOKEN.
 2. Set APP_URL and META_REDIRECT_URI to the HTTPS production origin.
-3. Set UPI_ID and UPI_PAYEE_NAME (or save UPI later in Settings as ADMIN).
+3. Set UPI_ID and UPI_PAYEE_NAME. Checkout QR auto-generates from those values (exact plan amount). Optional: override in Settings as ADMIN.
 4. Deploy. prisma generate + prisma db push run during npm run build.
 5. Open /setup once, create the first ADMIN, then lock SETUP_TOKEN away.
 6. Meta Developers: OAuth redirect /api/auth/meta/callback, webhook /api/webhooks/meta, subscribe comments + messages + messaging_postbacks.

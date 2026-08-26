@@ -82,37 +82,45 @@ export default function SettingsPage() {
           </span>
         </div>
         <p className="text-xs text-slate-300">
-          Enter the PhonePe / GPay / Paytm UPI ID customers should pay. Plans activate only after you approve the UTR.
+          Put <code className="text-fuchsia-300">UPI_ID</code> and <code className="text-fuchsia-300">UPI_PAYEE_NAME</code> in Vercel env, or type the UPI ID here. Checkout QR is generated automatically with the exact plan amount. No QR image upload is required.
         </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Admin UPI ID (PhonePe / GPay / Paytm / BHIM):
-            </label>
-            <input
-              type="text"
-              value={adminUpiId}
-              onChange={(e) => setAdminUpiId(e.target.value)}
-              placeholder="e.g. 7500002329@ybl or ritesh@paytm"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">This UPI ID is displayed on customer checkout & scan QR code.</p>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 pt-2 items-start">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Admin UPI ID (PhonePe / GPay / Paytm / BHIM)
+              </label>
+              <input
+                type="text"
+                value={adminUpiId}
+                onChange={(e) => setAdminUpiId(e.target.value)}
+                placeholder="name@okaxis"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Custom QR image URL (optional override)
+              </label>
+              <input
+                type="text"
+                value={adminQrCodeUrl}
+                onChange={(e) => setAdminQrCodeUrl(e.target.value)}
+                placeholder="Leave blank — auto QR is used"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
+              />
+            </div>
           </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Custom UPI QR Code Image URL (Optional):
-            </label>
-            <input
-              type="text"
-              value={adminQrCodeUrl}
-              onChange={(e) => setAdminQrCodeUrl(e.target.value)}
-              placeholder="https://... (Leave blank to use auto-generated QR code)"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">If blank, InstaPulse automatically generates dynamic UPI QR code.</p>
-          </div>
+          {adminUpiId && (
+            <div className="rounded-2xl bg-white p-2 w-40 h-40 mx-auto">
+              <img
+                src={adminQrCodeUrl || `/api/billing/upi-qr?plan=PREMIUM&t=${encodeURIComponent(adminUpiId)}`}
+                alt="Auto-generated UPI QR preview"
+                className="h-full w-full object-contain"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-4 pt-2">
