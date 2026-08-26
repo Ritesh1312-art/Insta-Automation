@@ -14,7 +14,28 @@ export async function GET() {
       prisma.webhookEvent.count({ where: eventFilter }), prisma.automationRun.count({ where: runFilter }),
       prisma.automationRun.count({ where: { ...runFilter, status: 'API_ACCEPTED' } }), prisma.automationRun.count({ where: { ...runFilter, status: 'FAILED' } }),
     ]);
-    return NextResponse.json({ totalAutomations, activeAutomations, totalCommentsReceived, totalRuns, totalSuccess, totalFailed, successRate: totalRuns ? Math.round(totalSuccess / totalRuns * 100) : 0, connectionStatus: connection?.connectionStatus || 'DISCONNECTED', instagramUsername: connection?.instagramUsername || null });
+    const owner = await prisma.user.findUnique({
+      where: { id: user.userId },
+      select: { plan: true, monthlyDmQuota: true, dmsUsedThisMonth: true, quotaResetAt: true, subscriptionStatus: true, role: true },
+    });
+    return NextResponse.json({
+      totalAutomations,
+      activeAutomations,
+      totalCommentsReceived,
+      totalRuns,
+      totalSuccess,
+      totalFailed,
+      successRate: totalRuns ? Math.round(totalSuccess / totalRuns * 100) : 0,
+      connectionStatus: connection?.connectionStatus || 'DISCONNECTED',
+      instagramUsername: connection?.instagramUsername || null,
+      profilePictureUrl: connection?.profilePictureUrl || null,
+      plan: owner?.plan || 'FREE',
+      monthlyDmQuota: owner?.monthlyDmQuota || 30,
+      dmsUsedThisMonth: owner?.dmsUsedThisMonth || 0,
+      quotaResetAt: owner?.quotaResetAt || null,
+      subscriptionStatus: owner?.subscriptionStatus || 'INACTIVE',
+      role: owner?.role || 'USER',
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error && error.message === 'UNAUTHORIZED' ? 'Authentication required' : 'Unable to load dashboard statistics' }, { status: error instanceof Error && error.message === 'UNAUTHORIZED' ? 401 : 500 });
   }

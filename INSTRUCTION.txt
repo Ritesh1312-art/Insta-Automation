@@ -1,9 +1,12 @@
-REAL META DEPLOYMENT CHECKLIST
+REAL META + UPI DEPLOYMENT CHECKLIST
 
-1. Configure production environment variables from .env.example. Generate unique values for AUTH_SECRET, ENCRYPTION_KEY, CRON_SECRET, SETUP_TOKEN, and META_VERIFY_TOKEN.
-2. Deploy the application at an HTTPS URL and set APP_URL and META_REDIRECT_URI to that URL.
-3. In Meta Developers, add the OAuth redirect URI /api/auth/meta/callback and the webhook callback /api/webhooks/meta. Subscribe the instagram comments field.
-4. Open /setup once, create the first administrator with SETUP_TOKEN, then keep the token private.
-5. Sign in, connect the real Instagram professional account, sync content, add real resources, and create automations.
-6. Use the configuration check before publishing an automation. It never sends a message; only incoming signed Meta comment webhooks can trigger delivery.
-7. Confirm Vercel Cron is enabled. It invokes the protected retry worker every five minutes for transient Meta failures.
+1. Copy .env.example into Vercel / host env. Generate unique AUTH_SECRET, ENCRYPTION_KEY, CRON_SECRET, SETUP_TOKEN, META_VERIFY_TOKEN.
+2. Deploy on Cloudflare Workers (see CLOUDFLARE.md). Put every key in Cloudflare Variables and Secrets (build + runtime). Set APP_URL and META_REDIRECT_URI to that HTTPS origin.
+3. Set UPI_ID and UPI_PAYEE_NAME. Checkout QR auto-generates from those values (exact plan amount). Optional: override in Settings as ADMIN.
+4. Deploy. prisma generate + prisma db push run during npm run build.
+5. Open /setup once, create the first ADMIN, then lock SETUP_TOKEN away.
+6. Meta Developers: OAuth redirect /api/auth/meta/callback, webhook /api/webhooks/meta, subscribe comments + messages + messaging_postbacks.
+7. Sign in, connect a professional Instagram account, sync posts, create a resource, enable follow-gate.
+8. Confirm Vercel Cron (or an external 5-minute ping) hits /api/jobs/process-webhooks with Bearer CRON_SECRET.
+9. Customers pay UPI → /verify → PENDING_REVIEW. Approve in Dashboard → UPI reviews only after the UTR hits your bank app.
+10. Never market unlimited DMs. Premium Pro Plus is a 5,000 / month cap.

@@ -1,89 +1,130 @@
-import { PrismaClient } from '@prisma/client';
-import { CreditCard, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+'use client';
 
-const prisma = new PrismaClient();
+import { useEffect, useState } from 'react';
+import { CreditCard, CheckCircle2, XCircle } from 'lucide-react';
 
-export default async function AdminPaymentsPage() {
-  const payments = await prisma.directUpiPayment.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-  });
+type Payment = {
+  id: string;
+  userEmail: string;
+  payerName: string;
+  payerUpiId: string;
+  planType: string;
+  amount: number;
+  utrNumber: string;
+  status: string;
+  createdAt: string;
+  reviewNote?: string | null;
+};
 
-  const totalRevenue = payments.reduce((acc, curr) => acc + curr.amount, 0);
+export default function AdminPaymentsPage() {
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState('');
+
+  const load = async () => {
+    const res = await fetch('/api/payments/direct-upi/review');
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || 'Unable to load payments');
+      return;
+    }
+    setPayments(data.payments || []);
+  };
+
+  useEffect(() => {
+    load().catch(() => setError('Unable to load payments'));
+  }, []);
+
+  const review = async (paymentId: string, decision: 'VERIFIED' | 'REJECTED') => {
+    const reviewNote = window.prompt(decision === 'VERIFIED' ? 'Optional note (UTR matched in UPI app)' : 'Reason for rejection') || '';
+    setBusyId(paymentId);
+    const res = await fetch('/api/payments/direct-upi/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paymentId, decision, reviewNote }),
+    });
+    const data = await res.json();
+    setBusyId('');
+    if (!res.ok) {
+      alert(data.error || 'Review failed');
+      return;
+    }
+    await load();
+  };
+
+  const revenue = payments.filter((item) => item.status === 'VERIFIED').reduce((sum, item) => sum + item.amount, 0);
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <CreditCard className="w-6 h-6 text-purple-400" /> Direct UPI Payments & UTR Audit Log
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
+            <CreditCard className="h-6 w-6 text-purple-400" /> UPI verification queue
           </h1>
-          <p className="text-slate-400 text-sm">
-            Review all 12-digit UTR payment submissions received directly in your bank account.
-          </p>
+          <p className="text-sm text-slate-400">Approve only after the UTR and amount appear in your bank/UPI app.</p>
         </div>
-        <div className="bg-purple-950/60 border border-purple-800/60 rounded-2xl px-5 py-3 text-right">
-          <span className="text-xs text-slate-400 uppercase font-semibold">Total Revenue Collected</span>
-          <p className="text-2xl font-extrabold text-purple-300">₹{totalRevenue.toLocaleString()}</p>
+        <div className="rounded-2xl border border-purple-800/60 bg-purple-950/60 px-5 py-3 text-right">
+          <span className="text-xs font-semibold uppercase text-slate-400">Verified revenue</span>
+          <p className="text-2xl font-extrabold text-purple-300">₹{revenue.toLocaleString('en-IN')}</p>
         </div>
       </div>
 
-      {/* Payments Table */}
-      <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between">
-          <h3 className="font-bold text-white text-sm flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" /> Recent UPI UTR Submissions ({payments.length})
-          </h3>
-          <span className="text-xs text-slate-400">0% Gateway Transaction Fees</span>
-        </div>
+      {error && <p className="text-sm text-rose-400">{error}</p>}
 
+      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
         {payments.length === 0 ? (
-          <div className="p-12 text-center text-slate-500 text-sm">
-            No UTR payment submissions recorded yet. Payments will appear here as users subscribe via Direct UPI.
-          </div>
+          <div className="p-12 text-center text-sm text-slate-500">No UPI submissions yet.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800">
-                <tr>
-                  <th className="p-4">Customer Email</th>
-                  <th className="p-4">Plan Activated</th>
-                  <th className="p-4">Amount Paid</th>
-                  <th className="p-4">12-Digit UTR Number</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4">Date & Time</th>
+          <table className="w-full text-left text-xs text-slate-300">
+            <thead className="border-b border-slate-800 bg-slate-900 font-mono text-[11px] uppercase text-slate-400">
+              <tr>
+                <th className="p-4">Customer</th>
+                <th className="p-4">Plan</th>
+                <th className="p-4">Amount</th>
+                <th className="p-4">UTR</th>
+                <th className="p-4">Status</th>
+                <th className="p-4">Submitted</th>
+                <th className="p-4">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-mono">
+              {payments.map((pay) => (
+                <tr key={pay.id} className="hover:bg-slate-900/40">
+                  <td className="p-4">
+                    <div className="font-semibold text-white">{pay.userEmail}</div>
+                    <div className="text-slate-500">{pay.payerName} · {pay.payerUpiId}</div>
+                  </td>
+                  <td className="p-4 text-purple-300">{pay.planType}</td>
+                  <td className="p-4 font-bold text-emerald-400">₹{pay.amount}</td>
+                  <td className="p-4 font-extrabold tracking-wider text-purple-300">{pay.utrNumber}</td>
+                  <td className="p-4">{pay.status}</td>
+                  <td className="p-4 text-slate-400">{new Date(pay.createdAt).toLocaleString('en-IN')}</td>
+                  <td className="p-4">
+                    {pay.status === 'PENDING_REVIEW' ? (
+                      <div className="flex gap-2">
+                        <button
+                          disabled={busyId === pay.id}
+                          onClick={() => review(pay.id, 'VERIFIED')}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white"
+                        >
+                          <CheckCircle2 className="h-3 w-3" /> Approve
+                        </button>
+                        <button
+                          disabled={busyId === pay.id}
+                          onClick={() => review(pay.id, 'REJECTED')}
+                          className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-bold text-white"
+                        >
+                          <XCircle className="h-3 w-3" /> Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-slate-500">{pay.reviewNote || '—'}</span>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
-                {payments.map((pay) => (
-                  <tr key={pay.id} className="hover:bg-slate-900/40 transition">
-                    <td className="p-4 text-white font-semibold">{pay.userEmail}</td>
-                    <td className="p-4">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                        pay.planType === 'VIP_UNLIMITED'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                      }`}>
-                        {pay.planType}
-                      </span>
-                    </td>
-                    <td className="p-4 font-bold text-emerald-400">₹{pay.amount}</td>
-                    <td className="p-4 font-extrabold text-purple-300 tracking-wider">
-                      {pay.utrNumber}
-                    </td>
-                    <td className="p-4">
-                      <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> VERIFIED & ACTIVE
-                      </span>
-                    </td>
-                    <td className="p-4 text-slate-400 text-[11px]">
-                      {new Date(pay.createdAt).toLocaleString('en-IN')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

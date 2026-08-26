@@ -11,6 +11,9 @@ export default function TermsPage() {
         <p>InstaDM Auto provides tools for authorized Instagram professional-account automation through Meta&apos;s official APIs.</p>
         <p>You must use the service only for accounts you are authorized to manage and comply with Meta&apos;s Platform Terms, Instagram Terms of Use, and all applicable laws.</p>
         <p>You are responsible for the automation rules, message content, consent, and audience choices you configure. Do not use the service for spam, harassment, or prohibited data collection.</p>
+        <p>Follow-gate confirmation is honor-system. Instagram does not provide a follow webhook, so the service cannot prove that a person followed you.</p>
+        <p>Direct UPI plans stay pending until an administrator matches the UTR and amount in their bank or UPI application. Typed reference numbers do not activate a plan automatically.</p>
+        <p>Monthly DM numbers are hard caps, not a promise of Instagram deliverability. Instagram may rate-limit or restrict professional accounts. The highest published cap is 5,000 DMs / month.</p>
         <p>The service may be suspended when use violates these terms or Meta platform policies.</p>
         <p>Questions about these terms can be sent to <a className="text-fuchsia-700 underline" href="mailto:ritesh.gupta131290@gmail.com">ritesh.gupta131290@gmail.com</a>.</p>
       </div>
