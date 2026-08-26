@@ -9,7 +9,9 @@
     "lint": "next lint",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "cf:build": "prisma generate && prisma db push && npx --yes @opennextjs/cloudflare build",
+    "cf:deploy": "npm run cf:build && npx --yes wrangler deploy"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

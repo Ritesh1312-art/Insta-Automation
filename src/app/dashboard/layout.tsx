@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -10,210 +10,98 @@ import {
   FolderDown,
   Activity,
   Settings,
-  Instagram,
-  ShieldCheck,
   Menu,
   X,
-  AlertTriangle,
-  CheckCircle2,
   LogOut,
   CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
-
-import KineticGrid from '@/components/KineticGrid';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    fetchStats();
-    fetch('/api/auth/me')
-      .then((res) => res.json())
-      .then((data) => setIsAdmin(data.user?.role === 'ADMIN'))
-      .catch(() => setIsAdmin(false));
+    fetch('/api/stats').then((res) => res.ok && res.json()).then(setStats).catch(() => null);
+    fetch('/api/auth/me').then((res) => res.json()).then((data) => setIsAdmin(data.user?.role === 'ADMIN')).catch(() => null);
+    setOpen(false);
   }, [pathname]);
 
-  const fetchStats = async () => {
-    try {
-      const res = await fetch('/api/stats');
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
-  };
-
-  const handleLogout = async () => {
-    if (!confirm('Are you sure you want to log out?')) return;
-    try {
-      const res = await fetch('/api/auth/logout', { method: 'POST' });
-      if (res.ok) {
-        window.location.href = '/login';
-      } else {
-        alert('Failed to log out');
-      }
-    } catch (err) {
-      alert('Error logging out');
-    }
-  };
-
-  const navItems = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Automations', href: '/dashboard/automations', icon: Zap },
-    { name: 'Instagram Content', href: '/dashboard/content', icon: Film },
+  const nav = [
+    { name: 'Studio', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Posts', href: '/dashboard/content', icon: Film },
+    { name: 'Flows', href: '/dashboard/automations', icon: Zap },
     { name: 'Resources', href: '/dashboard/resources', icon: FolderDown },
-    { name: 'Pricing & Plans ⚡', href: '/dashboard/pricing', icon: CreditCard },
-    { name: 'Activity & Logs', href: '/dashboard/logs', icon: Activity },
+    { name: 'Plans', href: '/dashboard/pricing', icon: CreditCard },
+    { name: 'Logs', href: '/dashboard/logs', icon: Activity },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+    ...(isAdmin ? [{ name: 'UPI reviews', href: '/dashboard/admin/payments', icon: ShieldCheck }] : []),
   ];
 
+  const logout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
+  };
+
   return (
-    <div className="relative min-h-screen bg-[#09090B] text-slate-100 flex flex-col md:flex-row overflow-hidden">
-      {/* Interactive Kinetic Grid Background (Originkit) */}
-      <div className="fixed inset-0 z-0 pointer-events-auto opacity-35">
-        <KineticGrid
-          background="#09090B"
-          dotColor="#A855F7"
-          lineColor="#6366F1"
-          trailColor="#EC4899"
-          spacing={25}
-          radius={300}
-          strength={10}
-          trail={true}
-        />
-      </div>
+    <div className="min-h-screen bg-[#07040a] text-zinc-100">
+      <div className="pointer-events-none fixed inset-0 film-grain" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(244,63,94,0.18),transparent_28%),radial-gradient(circle_at_80%_0%,rgba(168,85,247,0.16),transparent_24%)]" />
 
-      {/* Sidebar - Desktop */}
-      <aside className="relative z-10 hidden md:flex w-64 flex-col bg-slate-950/80 backdrop-blur-xl border-r border-slate-800/80 p-4 justify-between shrink-0">
-        <div>
-          {/* Brand Logo */}
-          <div className="flex items-center gap-3 px-3 py-4 mb-6 border-b border-slate-800">
-            <div className="w-10 h-10 rounded-xl gradient-ig flex items-center justify-center shadow-lg shadow-purple-500/30">
-              <Zap className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="font-extrabold text-lg leading-none bg-gradient-to-r from-white via-purple-200 to-purple-400 bg-clip-text text-transparent">
-                InstaPulse ⚡
-              </h1>
-              <span className="text-[11px] text-purple-400 font-mono font-medium">Meta Official Graph API</span>
-            </div>
-          </div>
-
-          {/* Nav Links */}
-          <nav className="space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    isActive
-                      ? 'bg-fuchsia-600 text-white shadow-lg shadow-fuchsia-600/30'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {item.name}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Account & Connection Health Badge */}
-        <div className="pt-4 border-t border-slate-800 space-y-3">
-          <div className="bg-slate-900 rounded-lg p-3 border border-slate-800">
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-slate-400">Meta Connection</span>
-              {stats?.connectionStatus === 'CONNECTED' ? (
-                <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> CONNECTED
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-amber-400 font-medium">
-                  <AlertTriangle className="w-3.5 h-3.5" /> DISCONNECTED
-                </span>
-              )}
-            </div>
-            {stats?.instagramUsername ? (
-              <p className="text-xs font-mono text-slate-300 truncate">
-                @{stats.instagramUsername}
-              </p>
-            ) : (
-              <p className="text-xs text-slate-500 italic">No account connected</p>
-            )}
-          </div>
-
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-rose-950/20 border border-rose-900/30 text-rose-400 hover:bg-rose-950/40 text-xs font-semibold transition-all"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Log Out
-          </button>
-
-          <div className="flex items-center justify-between px-2 text-[11px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3 text-emerald-500" /> HMAC Signature Verified
-            </span>
-          </div>
-        </div>
-      </aside>
-
-      {/* Mobile Top Bar */}
-      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-950 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg gradient-ig flex items-center justify-center">
-            <Instagram className="w-5 h-5 text-white" />
-          </div>
-          <span className="font-bold text-base text-white">InstaDM Auto</span>
-        </div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 text-slate-400 hover:text-white"
-        >
-          {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+      <header className="relative z-20 flex items-center justify-between border-b border-white/10 px-4 py-3 md:hidden">
+        <span className="font-display text-lg font-black">InstaDM</span>
+        <button onClick={() => setOpen(!open)}>{open ? <X /> : <Menu />}</button>
       </header>
 
-      {/* Mobile Nav Menu Drawer */}
-      {mobileMenuOpen && (
-        <div className="md:hidden bg-slate-950 border-b border-slate-800 px-4 py-3 space-y-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
-                  isActive ? 'bg-fuchsia-600 text-white' : 'text-slate-400 hover:bg-slate-900'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {item.name}
-              </Link>
-            );
-          })}
-
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-rose-950/20 border border-rose-900/30 text-rose-400 text-sm font-medium transition-all"
-          >
-            <LogOut className="w-4 h-4" /> Log Out
-          </button>
-        </div>
-      )}
-
-      {/* Main Content Area */}
-      <main className="relative z-10 flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
+      <div className="relative z-10 mx-auto flex max-w-[1400px]">
+        <aside className={`md:flex ${open ? 'flex' : 'hidden'} w-full flex-col justify-between border-white/10 bg-black/30 p-4 backdrop-blur-xl md:sticky md:top-0 md:h-screen md:w-64 md:border-r`}>
+          <div>
+            <div className="mb-8 hidden items-center gap-3 md:flex">
+              <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-fuchsia-500 via-rose-500 to-amber-300 font-display text-lg font-black text-zinc-950">
+                i
+              </div>
+              <div>
+                <p className="font-display text-xl font-black leading-none">InstaDM</p>
+                <p className="text-[11px] text-fuchsia-300">tap a post · send a DM</p>
+              </div>
+            </div>
+            <nav className="space-y-1">
+              {nav.map((item) => {
+                const Icon = item.icon;
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-semibold ${active ? 'bg-white text-zinc-950' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    <Icon className="h-4 w-4" /> {item.name}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+          <div className="mt-8 space-y-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 p-3">
+              {stats?.profilePictureUrl ? (
+                <img src={stats.profilePictureUrl} alt="" className="h-10 w-10 rounded-full object-cover" />
+              ) : (
+                <div className="h-10 w-10 rounded-full bg-white/10" />
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold">{stats?.instagramUsername ? `@${stats.instagramUsername}` : 'Not connected'}</p>
+                <p className="text-[11px] text-zinc-500">{stats?.connectionStatus === 'CONNECTED' ? 'Live' : 'Connect from Studio'}</p>
+              </div>
+            </div>
+            <button onClick={logout} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-500/20 py-2 text-xs font-semibold text-rose-300">
+              <LogOut className="h-3.5 w-3.5" /> Log out
+            </button>
+          </div>
+        </aside>
+        <main className="min-h-screen flex-1 p-4 md:p-8">{children}</main>
+      </div>
     </div>
   );
 }

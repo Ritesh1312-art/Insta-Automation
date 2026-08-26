@@ -28,11 +28,12 @@ export default function LandingPage() {
         <p className="mb-4 inline-flex rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-fuchsia-300">
           Official Meta Graph API · no unofficial scrapers
         </p>
-        <h1 className="max-w-3xl text-4xl font-black leading-tight text-white md:text-6xl">
-          Comment-to-DM that respects Instagram limits.
+        <h1 className="font-display max-w-3xl text-4xl font-black leading-[0.95] text-white md:text-7xl">
+          Tap the Reel.
+          <span className="block bg-gradient-to-r from-fuchsia-400 via-rose-400 to-amber-300 bg-clip-text text-transparent"> Drop the DM.</span>
         </h1>
-        <p className="mt-5 max-w-2xl text-lg text-slate-400">
-          Turn Reel comments into a follow-gate, then unlock a resource. Built for professional Instagram accounts connected through Meta — not growth-hacking or mass spam.
+        <p className="mt-5 max-w-2xl text-lg text-zinc-400">
+          Connect Instagram and your real posts show up as a studio wall — not a name list. One tap attaches the follow-gate auto-DM.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link href="/register" className="rounded-xl gradient-ig px-6 py-3 text-sm font-bold text-white shadow-lg shadow-fuchsia-600/30">

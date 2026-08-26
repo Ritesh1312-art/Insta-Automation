@@ -28,6 +28,7 @@ export async function GET() {
       successRate: totalRuns ? Math.round(totalSuccess / totalRuns * 100) : 0,
       connectionStatus: connection?.connectionStatus || 'DISCONNECTED',
       instagramUsername: connection?.instagramUsername || null,
+      profilePictureUrl: connection?.profilePictureUrl || null,
       plan: owner?.plan || 'FREE',
       monthlyDmQuota: owner?.monthlyDmQuota || 30,
       dmsUsedThisMonth: owner?.dmsUsedThisMonth || 0,

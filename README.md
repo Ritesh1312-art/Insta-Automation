@@ -39,20 +39,15 @@ Copy `.env.example` to `.env` / Vercel project settings.
 | `META_REDIRECT_URI` | `https://YOUR_DOMAIN/api/auth/meta/callback` |
 | `UPI_ID` / `UPI_PAYEE_NAME` | Checkout payee. QR is auto-generated from these — no image upload |
 
-## Deploy on Vercel
+## Deploy on Cloudflare
 
-1. Create a Postgres database (Vercel Postgres, Neon, or Supabase).
-2. Import the GitHub repo into Vercel.
-3. Set every environment variable above. `APP_URL` and `META_REDIRECT_URI` must be the production HTTPS URL.
-4. Deploy. `npm run build` runs `prisma generate && prisma db push && next build`.
-5. Open `/setup` once with `SETUP_TOKEN`, then keep that token private.
-6. In Meta Developers:
-   - Valid OAuth redirect: `https://YOUR_DOMAIN/api/auth/meta/callback`
-   - Webhook callback: `https://YOUR_DOMAIN/api/webhooks/meta`
-   - Verify token = `META_VERIFY_TOKEN`
-   - Subscribe Instagram fields: `comments`, `messages`, `messaging_postbacks`
-7. Connect a **professional** Instagram account linked to a Facebook Page.
-8. Set `CRON_SECRET`. Vercel Cron calls `/api/jobs/process-webhooks` every 5 minutes (`vercel.json`). Hobby plans only allow a daily cron — use Vercel Pro or an external ping.
+Primary host is **Cloudflare Workers** (OpenNext). Put every secret in Cloudflare **Variables and Secrets** — not in git. Full steps: [CLOUDFLARE.md](./CLOUDFLARE.md).
+
+```bash
+npm run cf:deploy
+```
+
+After connect, the studio wall loads real Instagram thumbnails (not name-only rows). Tap a post to attach the auto-DM.
 
 ## Cloudbase / generic Node host
 
