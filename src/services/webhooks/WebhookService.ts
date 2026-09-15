@@ -1,9 +1,6 @@
 import crypto from 'crypto';
 
 export class WebhookService {
-  private static get verifyToken() {
-    return process.env.META_VERIFY_TOKEN || 'my_custom_webhook_verify_token_123';
-  }
   private static get appSecret() {
     return process.env.META_APP_SECRET || '';
   }
