@@ -30,7 +30,8 @@ export async function GET(req: NextRequest) {
     color: { dark: '#0f172a', light: '#ffffff' },
   });
 
-  return new NextResponse(png, {
+  // Buffer is not assignable to BodyInit under newer @types/node — copy into a plain Uint8Array.
+  return new NextResponse(new Uint8Array(png), {
     status: 200,
     headers: {
       'Content-Type': 'image/png',

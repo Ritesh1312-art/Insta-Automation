@@ -10,8 +10,37 @@ export async function resetQuotaIfNeeded(userId: string) {
   const now = new Date();
   const resetAt = user.quotaResetAt;
   if (resetAt && resetAt > now) return user;
+  if (user.role === 'ADMIN') return user; // admins bypass quota cycles
 
   const nextReset = new Date(now.getTime() + MONTH_MS);
+  const plan = getPlan(user.plan);
+
+  // Paid plans last one 30-day cycle. With no new approved payment, roll back to Free.
+  if (plan.priceInr > 0) {
+    // Legacy rows without planActivatedAt: start the cycle clock now instead of cutting the user off mid-use.
+    const cycleStart = user.planActivatedAt ?? now;
+    if (now.getTime() - cycleStart.getTime() >= MONTH_MS) {
+      const free = getPlan('FREE');
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          plan: free.id,
+          monthlyDmQuota: free.dmQuota,
+          dmsUsedThisMonth: 0,
+          subscriptionStatus: 'EXPIRED',
+          planActivatedAt: null,
+          quotaResetAt: nextReset,
+        },
+      });
+    }
+    if (!user.planActivatedAt) {
+      return prisma.user.update({
+        where: { id: userId },
+        data: { planActivatedAt: now, quotaResetAt: nextReset },
+      });
+    }
+  }
+
   return prisma.user.update({
     where: { id: userId },
     data: {
