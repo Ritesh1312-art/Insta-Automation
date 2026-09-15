@@ -38,6 +38,10 @@ Copy `.env.example` to `.env` / Vercel project settings.
 | `META_GRAPH_API_VERSION` | e.g. `v21.0` |
 | `META_REDIRECT_URI` | `https://YOUR_DOMAIN/api/auth/meta/callback` |
 | `UPI_ID` / `UPI_PAYEE_NAME` | Checkout payee. QR is auto-generated from these — no image upload |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional approval bot; env values override dashboard settings |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | Optional welcome, OTP, and payment-status emails |
+
+Do not configure `TELEGRAM_WEBHOOK_SECRET`; the app derives a deterministic webhook secret from `AUTH_SECRET`.
 
 ## Deploy on Cloudflare
 
@@ -65,7 +69,7 @@ Point a process supervisor at `npm start`. Schedule `GET /api/jobs/process-webho
 
 ## Payments
 
-Checkout is **direct UPI**. Set `UPI_ID` and `UPI_PAYEE_NAME` (or save the UPI ID in Settings). `/api/billing/upi-qr?plan=PREMIUM` builds an `upi://pay` QR with the exact plan amount. Submitting a UTR creates `PENDING_REVIEW`. An admin opens **UPI reviews** and approves only after the credit is visible in the bank/UPI app. Plans are never auto-activated from a typed reference number.
+Checkout is **direct UPI only**. Set `UPI_ID` and `UPI_PAYEE_NAME` (or save the UPI ID in Settings). `/api/billing/upi-qr?plan=PREMIUM` builds an `upi://pay` QR with the exact plan amount. Submitting a UTR creates `PENDING_REVIEW`. An admin opens **UPI reviews** or uses the secret-verified Telegram bot and approves only after the credit is visible in the bank/UPI app. Both interfaces use the same idempotent review path. Plans are never auto-activated from a typed reference number.
 
 ## Policy notes
 

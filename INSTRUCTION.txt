@@ -5,9 +5,10 @@ REAL META + UPI DEPLOYMENT CHECKLIST
 3. Set UPI_ID and UPI_PAYEE_NAME. Checkout QR auto-generates from those values (exact plan amount). Optional: override in Settings as ADMIN.
 4. Deploy. prisma generate + prisma db push run during npm run build.
 5. Open /setup once, create the first ADMIN, then lock SETUP_TOKEN away.
-   CLI alternative (run with the production DATABASE_URL): npm run admin:create -- --email you@example.com --password '12+ chars'  (--reset changes an existing admin password)
+   CLI alternative (run with the production DATABASE_URL): npm run admin:create -- --email you@example.com --password 'Secure#1234'  (--reset changes an existing admin password; policy: 10–20 chars with upper/lower/number/special)
 6. Meta Developers: OAuth redirect /api/auth/meta/callback, webhook /api/webhooks/meta, subscribe comments + messages + messaging_postbacks.
 7. Sign in, connect a professional Instagram account, sync posts, create a resource, enable follow-gate.
 8. Confirm Vercel Cron (or an external 5-minute ping) hits /api/jobs/process-webhooks with Bearer CRON_SECRET.
-9. Customers pay UPI → /verify → PENDING_REVIEW. Approve in Dashboard → UPI reviews only after the UTR hits your bank app.
-10. Never market unlimited DMs. Premium Pro Plus is a 5,000 / month cap.
+9. Customers pay UPI → /verify → PENDING_REVIEW. Approve in Dashboard or the Telegram bot only after the UTR hits your bank app.
+10. Optional: set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID and all five SMTP_* values. Never add TELEGRAM_WEBHOOK_SECRET.
+11. Never market unlimited DMs. Premium Pro Plus is a 5,000 / month cap.

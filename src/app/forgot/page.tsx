@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import PasswordInput from '@/components/PasswordInput';
 
 export default function ForgotPage() {
   const router = useRouter();
@@ -115,14 +116,12 @@ export default function ForgotPage() {
               className="w-full text-xs font-mono text-center tracking-widest rounded-lg bg-slate-950 border border-slate-700 p-3 text-white focus:outline-none focus:border-fuchsia-500"
             />
 
-            <input
+            <PasswordInput
               required
-              minLength={12}
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="New Password (12+ characters)"
-              className="w-full text-xs rounded-lg bg-slate-950 border border-slate-700 p-3 text-white focus:outline-none focus:border-fuchsia-500"
+              placeholder="New secure password"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-white focus:border-fuchsia-500 focus:outline-none"
             />
 
             <button

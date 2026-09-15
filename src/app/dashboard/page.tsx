@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Instagram, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Instagram, RefreshCw, Sparkles } from 'lucide-react';
 import PostCard from '@/components/PostCard';
 import AutomationComposer from '@/components/AutomationComposer';
 import type { StudioPost } from '@/components/studio';
@@ -14,20 +14,26 @@ export default function DashboardOverview() {
   const [picked, setPicked] = useState<StudioPost | null>(null);
   const [toast, setToast] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState('');
 
   const load = async (sync = false) => {
     if (sync) setSyncing(true);
     setLoading(true);
+    setSyncError('');
     try {
       const [statsRes, mediaRes] = await Promise.all([
         fetch('/api/stats'),
         fetch(`/api/media${sync ? '?sync=true' : ''}`),
       ]);
       if (statsRes.ok) setStats(await statsRes.json());
-      if (mediaRes.ok) {
-        const data = await mediaRes.json();
-        setPosts(data.media || []);
+      const mediaData = await mediaRes.json();
+      if (!mediaRes.ok) throw new Error(mediaData.error || 'Unable to load Instagram posts');
+      setPosts(mediaData.media || []);
+      if (mediaData.syncError) {
+        setSyncError(`Instagram sync failed, so your cached posts are shown: ${mediaData.syncError}`);
       }
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Unable to load Instagram posts');
     } finally {
       setLoading(false);
       setSyncing(false);
@@ -88,6 +94,12 @@ export default function DashboardOverview() {
 
       {toast && (
         <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">{toast}</div>
+      )}
+
+      {syncError && (
+        <div className="flex gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{syncError}</span>
+        </div>
       )}
 
       {errorMessage === 'meta_connection_failed' && (

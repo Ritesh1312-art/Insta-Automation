@@ -50,6 +50,11 @@ Cloudflare has **Build** variables and **Runtime / Worker** secrets. Add the sam
 | `UPI_ID` | `name@okaxis` |
 | `UPI_PAYEE_NAME` | legal name on UPI |
 | `UPI_NOTE` | optional |
+| `TELEGRAM_BOT_TOKEN` | optional BotFather secret for payment approvals |
+| `TELEGRAM_CHAT_ID` | optional numeric admin chat ID |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | optional transactional email (configure all five) |
+
+Never add `TELEGRAM_WEBHOOK_SECRET`; the app derives it from `AUTH_SECRET`.
 
 Encrypt secrets (the lock icon). Do **not** paste keys into the repo.
 

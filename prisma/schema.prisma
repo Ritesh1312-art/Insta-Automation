@@ -22,6 +22,8 @@ model User {
   adminQrCodeUrl         String?            // Admin's custom UPI QR Code image URL
   razorpaySubscriptionId String?
   razorpayCustomerId     String?
+  telegramBotTokenEncrypted String?
+  telegramChatId              String?
   subscriptionStatus     String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED, PENDING_PAYMENT
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
