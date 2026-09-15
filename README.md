@@ -83,3 +83,6 @@ npx prisma generate
 npx prisma db push
 npm run dev
 ```
+
+
+redeploy 2026-09-16
