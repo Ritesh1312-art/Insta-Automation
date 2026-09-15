@@ -34,12 +34,14 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Try sending OTP via Email (SMTP configuration with default Gmail fallbacks)
+      // Send OTP via email. SMTP credentials come ONLY from the environment —
+      // never hardcoded. Without SMTP_USER/SMTP_PASSWORD the email is skipped
+      // and the response says so (no error, no credential leak).
+      const smtpUser = process.env.SMTP_USER || '';
+      const smtpPass = process.env.SMTP_PASSWORD || '';
       const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
       const smtpPort = process.env.SMTP_PORT || '465';
-      const smtpUser = process.env.SMTP_USER || 'ritesh.gupta131290@gmail.com';
-      const smtpPass = process.env.SMTP_PASSWORD || 'gvieclncokjcovkz';
-      const smtpFrom = process.env.SMTP_FROM || 'ritesh.gupta131290@gmail.com';
+      const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
       let emailSent = false;
       let emailError = '';
