@@ -10,7 +10,14 @@ export async function POST(req: NextRequest) {
     const media = await prisma.media.findFirst({ where: { id: mediaId, metaConnection: { userId: user.userId, connectionStatus: 'CONNECTED' } } });
     if (!media) return NextResponse.json({ error: 'Selected post is unavailable for your connected account' }, { status: 404 });
     const automations = await prisma.automation.findMany({ where: { userId: user.userId, status: 'ACTIVE', OR: [{ mediaId }, { mediaId: null }] }, include: { resource: true } });
-    const blockers = automations.flatMap((automation) => [
+    type PreviewAutomation = {
+      name: string;
+      keywords: string[];
+      triggerType: string;
+      dmMessageTemplate: string;
+      resource?: { url?: string | null; textContent?: string | null } | null;
+    };
+    const blockers = automations.flatMap((automation: PreviewAutomation) => [
       ...(automation.triggerType === 'KEYWORD' && automation.keywords.length === 0 ? [`${automation.name}: no keywords`] : []),
       ...(automation.dmMessageTemplate.includes('{{resource_url}}') && !automation.resource?.url && !automation.resource?.textContent ? [`${automation.name}: resource is missing`] : []),
     ]);

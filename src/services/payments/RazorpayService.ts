@@ -29,16 +29,27 @@ export class RazorpayService {
 
   public static verifyPaymentSignature(payload: {
     razorpay_payment_id: string;
-    razorpay_subscription_id: string;
+    razorpay_subscription_id?: string;
+    razorpay_order_id?: string;
     razorpay_signature: string;
   }): boolean {
     const key_secret = process.env.RAZORPAY_KEY_SECRET || '';
-    if (!key_secret) return false;
-    const body = payload.razorpay_payment_id + '|' + payload.razorpay_subscription_id;
+    if (!key_secret || !payload.razorpay_signature) return false;
+    // Razorpay signs `order_id|payment_id` for one-time orders and
+    // `payment_id|subscription_id` for subscriptions.
+    const body = payload.razorpay_order_id
+      ? `${payload.razorpay_order_id}|${payload.razorpay_payment_id}`
+      : `${payload.razorpay_payment_id}|${payload.razorpay_subscription_id}`;
     const expectedSignature = crypto
       .createHmac('sha256', key_secret)
-      .update(body.toString())
+      .update(body)
       .digest('hex');
-    return expectedSignature === payload.razorpay_signature;
+    try {
+      const expected = Buffer.from(expectedSignature, 'hex');
+      const received = Buffer.from(payload.razorpay_signature, 'hex');
+      return expected.length === received.length && crypto.timingSafeEqual(expected, received);
+    } catch {
+      return false;
+    }
   }
 }

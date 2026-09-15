@@ -72,7 +72,7 @@ export class AutomationEngine {
       where: { instagramAccountId: realIgAccountId, status: 'ACTIVE', OR: [{ mediaId: media.id }, { mediaId: null }] },
       include: { resource: true },
     });
-    const automation = automations.find((candidate) =>
+    const automation = automations.find((candidate: { keywords: string[]; matchingMode: string; triggerType: string }) =>
       KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, candidate.triggerType as any).matched
     );
     if (!automation) return this.finishEvent(eventId, 'IGNORED', 'No active automation matched this comment');
@@ -199,7 +199,7 @@ export class AutomationEngine {
       orderBy: { createdAt: 'asc' },
       take: limit,
     });
-    return Promise.all(events.map((event) => this.processWebhookEvent(event.id)));
+    return Promise.all(events.map((event: { id: string }) => this.processWebhookEvent(event.id)));
   }
 
   private static async finishEvent(eventId: string, status: 'IGNORED', message: string): Promise<Result> {
