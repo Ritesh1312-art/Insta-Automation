@@ -99,4 +99,22 @@ export class InstagramMessagingService {
       return { success: false, errorCategory: 'TRANSIENT', errorMessage: error instanceof Error ? error.message : 'Network failure' };
     }
   }
+
+  public static async sendDirectTemplate(payload: { recipientId: string; templatePayload: any; accessToken: string; instagramAccountId?: string }): Promise<ApiResponse> {
+    try {
+      const targetId = payload.instagramAccountId || 'me';
+      const response = await fetch(`https://graph.facebook.com/${this.version}/${targetId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${payload.accessToken}` },
+        body: JSON.stringify({
+          recipient: { id: payload.recipientId },
+          message: payload.templatePayload,
+        }),
+      });
+      const data = await response.json();
+      return response.ok ? { success: true, responseId: data.message_id || data.id } : classifyError(data);
+    } catch (error) {
+      return { success: false, errorCategory: 'TRANSIENT', errorMessage: error instanceof Error ? error.message : 'Network failure' };
+    }
+  }
 }

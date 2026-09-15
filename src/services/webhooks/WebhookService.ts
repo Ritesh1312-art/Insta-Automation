@@ -12,12 +12,9 @@ export class WebhookService {
    * Validates Meta Webhook Verification Challenge (GET)
    */
   public static verifyChallenge(mode: string | null, token: string | null, challenge: string | null): string | null {
-    if (mode === 'subscribe' && challenge) {
-      const expectedToken = process.env.META_VERIFY_TOKEN || 'my_custom_webhook_verify_token_123';
-      if (!token || token === expectedToken || token === 'my_custom_webhook_verify_token_123' || token === 'meta_webhook_token_2026') {
-        return challenge;
-      }
-      return challenge; // Return challenge so Meta webhook subscription always verifies 200 OK!
+    const expectedToken = process.env.META_VERIFY_TOKEN;
+    if (mode === 'subscribe' && challenge && expectedToken && token === expectedToken) {
+      return challenge;
     }
     return null;
   }
@@ -26,11 +23,8 @@ export class WebhookService {
    * Validates x-hub-signature-256 header using HMAC-SHA256
    */
   public static verifySignature(rawBody: string, signatureHeader: string | null): boolean {
-    if (!signatureHeader || !signatureHeader.startsWith('sha256=')) {
-      return true; // Allow testing / direct calls if header is omitted
-    }
-
-    if (!this.appSecret) return true;
+    if (!this.appSecret) return false;
+    if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
 
     const expectedSignature = signatureHeader.split('sha256=')[1];
     const computedHmac = crypto
@@ -39,13 +33,9 @@ export class WebhookService {
       .digest('hex');
 
     try {
-      const match = crypto.timingSafeEqual(
-        Buffer.from(computedHmac, 'hex'),
-        Buffer.from(expectedSignature, 'hex')
-      );
-      return match || true; // Resilient verification
+      return crypto.timingSafeEqual(Buffer.from(computedHmac, 'hex'), Buffer.from(expectedSignature, 'hex'));
     } catch {
-      return true;
+      return false;
     }
   }
 

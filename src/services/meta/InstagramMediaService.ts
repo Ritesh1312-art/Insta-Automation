@@ -13,7 +13,7 @@ export class InstagramMediaService {
     const version = process.env.META_GRAPH_API_VERSION;
     if (!version || !accessToken) throw new Error('Meta Graph API is not configured');
     const fields = 'id,media_type,caption,permalink,media_url,thumbnail_url,timestamp';
-    const response = await fetch(`https://graph.facebook.com/${version}/${instagramAccountId}/media?fields=${fields}`, {
+    const response = await fetch(`https://graph.facebook.com/${version}/${instagramAccountId}/media?fields=${fields}&limit=50`, {
       headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store',
     });
     const data = await response.json();

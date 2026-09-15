@@ -1,76 +1,72 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
+import { requireSessionUser } from '@/lib/auth';
+import { normalizePlanId, getPlan } from '@/lib/plans';
 import { RazorpayService } from '@/services/payments/RazorpayService';
-
-const prisma = new PrismaClient();
 
 export async function POST(req: Request) {
   try {
-    const { email, planType } = await req.json();
-
-    if (!email || !planType) {
-      return NextResponse.json({ error: 'Email and planType are required' }, { status: 400 });
+    const session = await requireSessionUser();
+    const body = await req.json();
+    const planType = normalizePlanId(body.planType);
+    if (!planType || planType === 'FREE') {
+      return NextResponse.json({ error: 'Select a paid plan' }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
+    const user = await prisma.user.findUnique({ where: { id: session.userId } });
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-    // Calculate amount for Razorpay Order fallback (₹299 or ₹699)
-    const amountInPaise = planType === 'VIP_UNLIMITED' ? 69900 : 29900;
+    const plan = getPlan(planType);
+    const amountInPaise = plan.priceInr * 100;
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
+    const razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!razorpayKeyId || !razorpaySecret) {
+      return NextResponse.json({
+        error: 'Razorpay is not configured. Use Direct UPI verification instead.',
+      }, { status: 501 });
+    }
 
     let subscriptionId = '';
     let isOrderFallback = false;
 
     try {
-      const planId = planType === 'VIP_UNLIMITED'
-        ? (process.env.RAZORPAY_PLAN_VIP_699 || 'plan_vip_699_test')
-        : (process.env.RAZORPAY_PLAN_PRO_299 || 'plan_pro_299_test');
-
-      const result = await RazorpayService.createSubscription({
-        planId,
-        customerEmail: user.email,
-        customerName: user.name || 'InstaPulse User',
-      });
-
-      if (result.success && result.subscription) {
-        subscriptionId = result.subscription.id;
+      const planId = process.env[`RAZORPAY_PLAN_${planType}`];
+      if (planId) {
+        const result = await RazorpayService.createSubscription({
+          planId,
+          customerEmail: user.email,
+          customerName: user.name || 'InstaDM user',
+        });
+        if (result.success && result.subscription) subscriptionId = result.subscription.id;
       }
     } catch {
-      // Fallback if plan_id does not exist in Razorpay Dashboard
+      // Fall through to one-time order
     }
 
-    // If subscription creation was not successful (e.g. test plan_id doesn't exist), create a direct Razorpay Order!
     if (!subscriptionId) {
-      const razorpayKeyId = process.env.RAZORPAY_KEY_ID || 'rzp_test_TIzWrtxCNfmOku';
-      const razorpaySecret = process.env.RAZORPAY_KEY_SECRET || 'emPG3RcKxByW0V111UceBqUh';
-
       const orderRes = await fetch('https://api.razorpay.com/v1/orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Basic ' + Buffer.from(razorpayKeyId + ':' + razorpaySecret).toString('base64'),
+          Authorization: 'Basic ' + Buffer.from(`${razorpayKeyId}:${razorpaySecret}`).toString('base64'),
         },
         body: JSON.stringify({
           amount: amountInPaise,
           currency: 'INR',
           receipt: `rcpt_${Date.now()}`,
-          notes: { email: user.email, planType, app: 'InstaPulse' },
+          notes: { email: user.email, planType, app: 'InstaDM' },
         }),
       });
-
       const orderData = await orderRes.json();
       if (!orderRes.ok || !orderData.id) {
         return NextResponse.json({ error: orderData.error?.description || 'Razorpay payment creation failed' }, { status: 500 });
       }
-
       subscriptionId = orderData.id;
       isOrderFallback = true;
     }
 
     await prisma.user.update({
-      where: { email },
+      where: { id: user.id },
       data: { razorpaySubscriptionId: subscriptionId },
     });
 
@@ -79,9 +75,12 @@ export async function POST(req: Request) {
       subscriptionId,
       isOrder: isOrderFallback,
       amount: amountInPaise,
-      keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_TIzWrtxCNfmOku',
+      keyId: razorpayKeyId,
     });
   } catch (error: any) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 });
   }
 }

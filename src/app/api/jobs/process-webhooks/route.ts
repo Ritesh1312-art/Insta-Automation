@@ -12,6 +12,7 @@ function authorized(request: NextRequest) {
 }
 export async function GET(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const results = await AutomationEngine.processDueEvents();
-  return NextResponse.json({ processed: results.length, results });
+  const { resetDueQuotas } = await import('@/lib/quota');
+  const [results, quotasReset] = await Promise.all([AutomationEngine.processDueEvents(), resetDueQuotas()]);
+  return NextResponse.json({ processed: results.length, quotasReset, results });
 }

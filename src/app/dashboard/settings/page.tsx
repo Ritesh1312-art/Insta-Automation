@@ -25,11 +25,16 @@ export default function SettingsPage() {
     }
   };
 
-  const [adminUpiId, setAdminUpiId] = useState('7500002329@ybl');
+  const [adminUpiId, setAdminUpiId] = useState('');
   const [adminQrCodeUrl, setAdminQrCodeUrl] = useState('');
   const [upiSaveStatus, setUpiSaveStatus] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   React.useEffect(() => {
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => setIsAdmin(data.user?.role === 'ADMIN'))
+      .catch(() => setIsAdmin(false));
     fetch('/api/admin/upi-settings')
       .then((res) => res.json())
       .then((data) => {
@@ -67,8 +72,7 @@ export default function SettingsPage() {
         <p className="text-slate-400 text-sm">System environment configuration and Meta App setup guide.</p>
       </div>
 
-      {/* Admin Direct UPI Payment Settings Card */}
-      <div className="bg-gradient-to-br from-slate-950 to-purple-950/40 p-6 rounded-2xl border border-purple-500/30 space-y-4 shadow-xl">
+      {isAdmin && <div className="bg-gradient-to-br from-slate-950 to-purple-950/40 p-6 rounded-2xl border border-purple-500/30 space-y-4 shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             📲 Direct UPI Payment Settings (100% Direct Bank Money)
@@ -78,37 +82,45 @@ export default function SettingsPage() {
           </span>
         </div>
         <p className="text-xs text-slate-300">
-          Enter your personal PhonePe, Paytm, or Google Pay UPI ID. All user payments (₹299 / ₹699) will be sent directly to your bank account via this UPI ID!
+          Put <code className="text-fuchsia-300">UPI_ID</code> and <code className="text-fuchsia-300">UPI_PAYEE_NAME</code> in Vercel env, or type the UPI ID here. Checkout QR is generated automatically with the exact plan amount. No QR image upload is required.
         </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Admin UPI ID (PhonePe / GPay / Paytm / BHIM):
-            </label>
-            <input
-              type="text"
-              value={adminUpiId}
-              onChange={(e) => setAdminUpiId(e.target.value)}
-              placeholder="e.g. 7500002329@ybl or ritesh@paytm"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">This UPI ID is displayed on customer checkout & scan QR code.</p>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 pt-2 items-start">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Admin UPI ID (PhonePe / GPay / Paytm / BHIM)
+              </label>
+              <input
+                type="text"
+                value={adminUpiId}
+                onChange={(e) => setAdminUpiId(e.target.value)}
+                placeholder="name@okaxis"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Custom QR image URL (optional override)
+              </label>
+              <input
+                type="text"
+                value={adminQrCodeUrl}
+                onChange={(e) => setAdminQrCodeUrl(e.target.value)}
+                placeholder="Leave blank — auto QR is used"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
+              />
+            </div>
           </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Custom UPI QR Code Image URL (Optional):
-            </label>
-            <input
-              type="text"
-              value={adminQrCodeUrl}
-              onChange={(e) => setAdminQrCodeUrl(e.target.value)}
-              placeholder="https://... (Leave blank to use auto-generated QR code)"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-purple-500 font-mono"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">If blank, InstaPulse automatically generates dynamic UPI QR code.</p>
-          </div>
+          {adminUpiId && (
+            <div className="rounded-2xl bg-white p-2 w-40 h-40 mx-auto">
+              <img
+                src={adminQrCodeUrl || `/api/billing/upi-qr?plan=PREMIUM&t=${encodeURIComponent(adminUpiId)}`}
+                alt="Auto-generated UPI QR preview"
+                className="h-full w-full object-contain"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-4 pt-2">
@@ -122,7 +134,7 @@ export default function SettingsPage() {
             <span className="text-xs font-semibold text-purple-300">{upiSaveStatus}</span>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Account & Session Section */}
       <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4">
@@ -148,9 +160,9 @@ export default function SettingsPage() {
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">
             <h3 className="font-bold text-white text-sm">Webhook Callback</h3>
             <div className="font-mono bg-slate-950 p-3 rounded border border-slate-800 space-y-1 text-slate-200">
-              <div>Callback URL: <span className="text-emerald-400">https://insta-automation-vert.vercel.app/api/webhooks/meta</span></div>
-              <div>Verify Token: <span className="text-fuchsia-300">Set private META_VERIFY_TOKEN in Vercel</span></div>
-              <div>Subscribed Field: <span className="text-amber-300">comments</span> under the <span className="text-slate-100">instagram</span> object</div>
+              <div>Callback URL: <span className="text-emerald-400">/api/webhooks/meta on this domain</span></div>
+              <div>Verify Token: <span className="text-fuchsia-300">Must equal META_VERIFY_TOKEN</span></div>
+              <div>Subscribed fields: <span className="text-amber-300">comments, messages, messaging_postbacks</span></div>
             </div>
           </div>
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2">

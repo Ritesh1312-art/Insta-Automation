@@ -81,9 +81,10 @@ export async function POST(req: NextRequest) {
         dmMessageTemplate: body.dmMessageTemplate.trim(),
         publicReplyEnabled: Boolean(body.publicReplyEnabled) && publicReplyTemplates.length > 0,
         publicReplyTemplates,
-        ignoreOwnerComments: Boolean(body.ignoreOwnerComments),
-        oneDeliveryPerUser: Boolean(body.oneDeliveryPerUser),
-        oneDeliveryPerComment: Boolean(body.oneDeliveryPerComment),
+        ignoreOwnerComments: body.ignoreOwnerComments !== false,
+        oneDeliveryPerUser: body.oneDeliveryPerUser !== false,
+        oneDeliveryPerComment: body.oneDeliveryPerComment !== false,
+        followGateEnabled: body.followGateEnabled !== false,
       },
     });
     return NextResponse.json({ automation }, { status: 201 });

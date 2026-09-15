@@ -13,14 +13,16 @@ model User {
   passwordHash           String
   name                   String?
   role                   String             @default("USER")
-  plan                   String             @default("FREE") // FREE, PRO_CREATOR, VIP_UNLIMITED
-  monthlyDmQuota         Int                @default(30) // Exactly 30 Free DMs per month for FREE plan
+  plan                   String             @default("FREE") // FREE, STANDARD, PREMIUM, PREMIUM_PRO, PREMIUM_PRO_PLUS
+  monthlyDmQuota         Int                @default(30)
   dmsUsedThisMonth       Int                @default(0)
+  quotaResetAt           DateTime?
+  planActivatedAt        DateTime?
   adminUpiId             String?            // Admin's PhonePe/Paytm/GPay UPI ID
   adminQrCodeUrl         String?            // Admin's custom UPI QR Code image URL
   razorpaySubscriptionId String?
   razorpayCustomerId     String?
-  subscriptionStatus     String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED
+  subscriptionStatus     String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED, PENDING_PAYMENT
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   metaConnections        MetaConnection[]
@@ -31,17 +33,24 @@ model User {
 }
 
 model DirectUpiPayment {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   userEmail  String
-  planType   String   // PRO_CREATOR, VIP_UNLIMITED
-  amount     Float    // 299, 699
-  utrNumber  String   // 12-digit UTR/Ref Number
-  status     String   @default("VERIFIED") // VERIFIED, PENDING_REVIEW, REJECTED
-  approvedAt DateTime @default(now())
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  payerName  String
+  payerUpiId String
+  planType   String    // FREE, STANDARD, PREMIUM, PREMIUM_PRO, PREMIUM_PRO_PLUS
+  amount     Float
+  utrNumber  String    @unique
+  status     String    @default("PENDING_REVIEW") // PENDING_REVIEW, VERIFIED, REJECTED
+  approvedAt DateTime?
+  reviewedBy String?
+  reviewNote String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([status, createdAt])
 }
 
 model MetaConnection {
@@ -113,6 +122,7 @@ model Automation {
   ignoreOwnerComments   Boolean        @default(true)
   oneDeliveryPerUser    Boolean        @default(true)
   oneDeliveryPerComment Boolean        @default(true)
+  followGateEnabled     Boolean        @default(true)
   dmMessageTemplate     String
   publicReplyEnabled    Boolean        @default(false)
   publicReplyTemplates  String[]
@@ -184,8 +194,12 @@ model Contact {
   metaConnection     MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
   igsid              String
   username           String?
-  followedAt         DateTime?      // Set when user clicks Follow Profile button
-  promptSentAt       DateTime?      // Set when prompt DM is successfully delivered
+  followedAt         DateTime?      // Honor-system confirm time. Instagram has no follow webhook.
+  promptSentAt       DateTime?
+  followGateStatus   String         @default("NEW") // NEW, FOLLOW_ASKED, CLAIMED, UNLOCKED, DELIVERED
+  lastAutomationId   String?
+  claimedFollowAt    DateTime?
+  lastGateMessageAt  DateTime?
   firstInteraction   DateTime       @default(now())
   lastInteraction    DateTime       @default(now())
   totalInteractions  Int            @default(1)

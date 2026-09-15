@@ -7,6 +7,10 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-outfit)", "system-ui", "sans-serif"],
+        display: ["var(--font-syne)", "var(--font-outfit)", "sans-serif"],
+      },
       colors: {
         brand: {
           50: '#fdf4ff',

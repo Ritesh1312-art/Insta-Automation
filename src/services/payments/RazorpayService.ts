@@ -3,8 +3,9 @@ import crypto from 'crypto';
 
 export class RazorpayService {
   private static get instance() {
-    const key_id = process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder_key';
-    const key_secret = process.env.RAZORPAY_KEY_SECRET || 'rzp_test_placeholder_secret';
+    const key_id = process.env.RAZORPAY_KEY_ID;
+    const key_secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!key_id || !key_secret) throw new Error('Razorpay is not configured');
     return new Razorpay({ key_id, key_secret });
   }
 
