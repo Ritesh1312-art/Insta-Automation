@@ -4,7 +4,7 @@
  *
  * Usage — run where the database is reachable, with DATABASE_URL set:
  *   DATABASE_URL="postgresql://user:pass@host:5432/db" \
- *   node scripts/create-admin.mjs --email you@example.com --password 'at-least-12-chars'
+ *   node scripts/create-admin.mjs --email you@example.com --password 'Secure#1234'
  *
  * Add --reset to change the password of an existing admin.
  *
@@ -30,7 +30,16 @@ const password = arg('password');
 const reset = args.includes('--reset');
 
 if (!email || !/^\S+@\S+\.\S+$/.test(email)) fail('Pass --email you@example.com');
-if (!password || password.length < 12) fail('Pass --password with at least 12 characters');
+const validPassword = typeof password === 'string'
+  && password.length >= 10
+  && password.length <= 20
+  && /[A-Z]/.test(password)
+  && /[a-z]/.test(password)
+  && /[0-9]/.test(password)
+  && /[^A-Za-z0-9\s]/.test(password);
+if (!validPassword) {
+  fail('Password must be 10–20 characters with uppercase, lowercase, number, and special character');
+}
 if (!process.env.DATABASE_URL) fail('DATABASE_URL is not set — export the production connection string first');
 
 const prisma = new PrismaClient();

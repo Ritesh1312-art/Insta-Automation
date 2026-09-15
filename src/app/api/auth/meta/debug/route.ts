@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
 import { isAuthError, requireAdmin } from '@/lib/require-admin';
+import { META_PAGE_WEBHOOK_FIELDS } from '@/services/meta/MetaAuthService';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,7 +97,11 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({ success: true, subscriptionResults });
+    return NextResponse.json({
+      success: true,
+      subscribedFields: [...META_PAGE_WEBHOOK_FIELDS],
+      subscriptionResults,
+    });
   } catch (error: any) {
     if (isAuthError(error, 'UNAUTHORIZED')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     if (isAuthError(error, 'FORBIDDEN')) return NextResponse.json({ error: 'Admin only' }, { status: 403 });

@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/auth';
 import { normalizePlanId } from '@/lib/plans';
 import { isValidUpiId, isValidUtr } from '@/lib/upi';
+import { sendPaymentSubmittedEmail } from '@/lib/mailer';
+import { notifyTelegramPaymentSubmitted } from '@/lib/telegram';
 
 export async function POST(req: Request) {
   try {
@@ -68,6 +70,12 @@ export async function POST(req: Request) {
         details: { paymentId: payment.id, planType: plan.id, amount: plan.priceInr, utrNumber },
       },
     });
+
+    // Notifications are best-effort and never change payment state.
+    await Promise.all([
+      sendPaymentSubmittedEmail(user.email, plan.id, plan.priceInr, utrNumber),
+      notifyTelegramPaymentSubmitted(payment),
+    ]);
 
     return NextResponse.json({
       success: true,

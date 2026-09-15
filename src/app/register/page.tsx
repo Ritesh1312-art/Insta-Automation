@@ -3,6 +3,7 @@
 import { FormEvent, Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import PasswordInput from '@/components/PasswordInput';
 
 function RegisterForm() {
   const router = useRouter();
@@ -37,7 +38,7 @@ function RegisterForm() {
         <p className="text-sm text-slate-400">Starts on the Free plan: 30 official DMs / month.</p>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-white" />
         <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-white" />
-        <input required minLength={12} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (12+ characters)" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-white" />
+        <PasswordInput required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Secure password" className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-white" />
         <button className="w-full rounded-lg bg-fuchsia-600 p-3 font-medium text-white">Create account</button>
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <p className="text-xs text-slate-400">Already have an account? <Link href="/login" className="underline hover:text-white">Sign in</Link></p>

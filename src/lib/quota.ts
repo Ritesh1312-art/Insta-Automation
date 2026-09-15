@@ -1,25 +1,42 @@
 import { prisma } from '@/lib/prisma';
-import { getPlan, type PlanId } from '@/lib/plans';
+import { getPlan, isPaidPlan, type PlanId } from '@/lib/plans';
 
-const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+export const PLAN_CYCLE_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function planAssignmentData(planId: PlanId, now = new Date()) {
+  const plan = getPlan(planId);
+  return {
+    plan: plan.id,
+    monthlyDmQuota: plan.dmQuota,
+    dmsUsedThisMonth: 0,
+    subscriptionStatus: 'ACTIVE',
+    planActivatedAt: plan.priceInr > 0 ? now : null,
+    quotaResetAt: new Date(now.getTime() + PLAN_CYCLE_MS),
+  };
+}
 
 export async function resetQuotaIfNeeded(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return null;
-
-  const now = new Date();
-  const resetAt = user.quotaResetAt;
-  if (resetAt && resetAt > now) return user;
   if (user.role === 'ADMIN') return user; // admins bypass quota cycles
 
-  const nextReset = new Date(now.getTime() + MONTH_MS);
+  const now = new Date();
   const plan = getPlan(user.plan);
 
-  // Paid plans last one 30-day cycle. With no new approved payment, roll back to Free.
+  // A paid plan expires exactly 30 days after activation, even if quotaResetAt
+  // was changed or missing. This check intentionally runs before the fast path.
   if (plan.priceInr > 0) {
-    // Legacy rows without planActivatedAt: start the cycle clock now instead of cutting the user off mid-use.
-    const cycleStart = user.planActivatedAt ?? now;
-    if (now.getTime() - cycleStart.getTime() >= MONTH_MS) {
+    if (!user.planActivatedAt) {
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          planActivatedAt: now,
+          quotaResetAt: new Date(now.getTime() + PLAN_CYCLE_MS),
+        },
+      });
+    }
+
+    if (now.getTime() - user.planActivatedAt.getTime() >= PLAN_CYCLE_MS) {
       const free = getPlan('FREE');
       return prisma.user.update({
         where: { id: userId },
@@ -29,23 +46,19 @@ export async function resetQuotaIfNeeded(userId: string) {
           dmsUsedThisMonth: 0,
           subscriptionStatus: 'EXPIRED',
           planActivatedAt: null,
-          quotaResetAt: nextReset,
+          quotaResetAt: new Date(now.getTime() + PLAN_CYCLE_MS),
         },
       });
     }
-    if (!user.planActivatedAt) {
-      return prisma.user.update({
-        where: { id: userId },
-        data: { planActivatedAt: now, quotaResetAt: nextReset },
-      });
-    }
   }
+
+  if (user.quotaResetAt && user.quotaResetAt > now) return user;
 
   return prisma.user.update({
     where: { id: userId },
     data: {
       dmsUsedThisMonth: 0,
-      quotaResetAt: nextReset,
+      quotaResetAt: new Date(now.getTime() + PLAN_CYCLE_MS),
     },
   });
 }
@@ -74,26 +87,25 @@ export async function incrementDmUsage(userId: string) {
 }
 
 export async function applyApprovedPlan(userId: string, planId: PlanId) {
-  const plan = getPlan(planId);
-  const now = new Date();
   return prisma.user.update({
     where: { id: userId },
-    data: {
-      plan: plan.id,
-      monthlyDmQuota: plan.dmQuota,
-      dmsUsedThisMonth: 0,
-      subscriptionStatus: 'ACTIVE',
-      planActivatedAt: now,
-      quotaResetAt: new Date(now.getTime() + MONTH_MS),
-    },
+    data: planAssignmentData(planId),
   });
 }
 
 export async function resetDueQuotas(limit = 200) {
   const now = new Date();
+  const paidPlanIds = (['STANDARD', 'PREMIUM', 'PREMIUM_PRO', 'PREMIUM_PRO_PLUS'] as PlanId[])
+    .filter((planId) => isPaidPlan(planId));
+  const paidExpiryBoundary = new Date(now.getTime() - PLAN_CYCLE_MS);
   const due = await prisma.user.findMany({
     where: {
-      OR: [{ quotaResetAt: null }, { quotaResetAt: { lte: now } }],
+      role: { not: 'ADMIN' },
+      OR: [
+        { quotaResetAt: null },
+        { quotaResetAt: { lte: now } },
+        { plan: { in: paidPlanIds }, planActivatedAt: { lte: paidExpiryBoundary } },
+      ],
     },
     select: { id: true },
     take: limit,

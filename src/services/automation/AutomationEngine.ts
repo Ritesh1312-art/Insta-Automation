@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
 import { KeywordMatcher } from './KeywordMatcher';
@@ -26,7 +25,7 @@ export class AutomationEngine {
     const eventId = `${payload.instagramAccountId}:${payload.commentId}`;
     return prisma.webhookEvent.upsert({
       where: { eventId },
-      create: { ...payload, rawPayload: payload.rawPayload as Prisma.InputJsonValue, eventId, eventType: 'comments', status: 'RECEIVED' },
+      create: { ...payload, rawPayload: payload.rawPayload as object, eventId, eventType: 'comments', status: 'RECEIVED' },
       update: {},
     });
   }
@@ -231,26 +230,57 @@ export class AutomationEngine {
     postbackPayload: string;
     rawPayload: any;
   }): Promise<Result> {
+    let auditUserId: string | null = null;
+    let auditAutomationId: string | null = null;
+    let auditAction = 'UNKNOWN';
+    const finish = async (result: Result): Promise<Result> => {
+      try {
+        await prisma.auditLog.create({
+          data: {
+            userId: auditUserId,
+            action: `POSTBACK_${result.status}`,
+            details: {
+              automationId: auditAutomationId,
+              instagramAccountId: payload.instagramAccountId,
+              senderId: payload.senderId,
+              buttonAction: auditAction,
+              postbackPayload: String(payload.postbackPayload || '').slice(0, 160),
+              outcome: result.message,
+            },
+          },
+        });
+      } catch (auditError) {
+        console.error('Unable to write postback audit log:', auditError);
+      }
+      return result;
+    };
+
     try {
       const { instagramAccountId, senderId } = payload;
       const cleanPayload = (payload.postbackPayload || '').trim();
-      if (!cleanPayload) return { status: 'IGNORED', message: 'Empty messaging payload' };
+      if (!cleanPayload) return finish({ status: 'IGNORED', message: 'Empty messaging payload' });
 
       const parsed = parseButtonPayload(cleanPayload);
+      auditAction = parsed.action;
       const isTextConfirm = parsed.action === 'UNKNOWN' && isHonorFollowConfirm(cleanPayload);
       const isDeliverText = parsed.action === 'UNKNOWN' && /^(resource|send|unlock|link)$/i.test(cleanPayload.trim());
+      const resolvedAction = parsed.action === 'UNKNOWN'
+        ? (isTextConfirm ? 'CONFIRM' : isDeliverText ? 'DELIVER' : 'UNKNOWN')
+        : parsed.action;
+      auditAction = resolvedAction;
 
       if (parsed.action === 'UNKNOWN' && !isTextConfirm && !isDeliverText) {
-        return { status: 'IGNORED', message: 'Messaging event is not a follow-gate action' };
+        return finish({ status: 'IGNORED', message: 'Messaging event is not a follow-gate action' });
       }
 
       const connection = await prisma.metaConnection.findFirst({
         where: { OR: [{ instagramAccountId }, { facebookPageId: instagramAccountId }] },
       });
       if (!connection || connection.connectionStatus !== 'CONNECTED') {
-        return { status: 'IGNORED', message: 'No connected Instagram account' };
+        return finish({ status: 'IGNORED', message: 'No connected Instagram account' });
       }
 
+      auditUserId = connection.userId;
       const realInstagramAccountId = connection.instagramAccountId;
       const accessToken = decryptToken(connection.accessTokenEncrypted);
       const igUsername = connection.instagramUsername || 'instagram';
@@ -273,12 +303,16 @@ export class AutomationEngine {
           include: { resource: true },
         });
       }
+      if (automation) {
+        auditUserId = automation.userId;
+        auditAutomationId = automation.id;
+      }
       if (!automation || automation.status !== 'ACTIVE') {
-        return { status: 'IGNORED', message: 'Automation not found or inactive' };
+        return finish({ status: 'IGNORED', message: 'Automation not found or inactive' });
       }
 
       const quota = await assertDmQuota(automation.userId);
-      if (!quota.ok) return { status: 'IGNORED', message: quota.message };
+      if (!quota.ok) return finish({ status: 'IGNORED', message: quota.message });
 
       const contact = await FollowGateService.upsertContact({
         instagramAccountId: realInstagramAccountId,
@@ -287,10 +321,10 @@ export class AutomationEngine {
       });
 
       if (automation.oneDeliveryPerUser && contact.promptSentAt) {
-        return { status: 'IGNORED', message: 'Resource already delivered to this user' };
+        return finish({ status: 'IGNORED', message: 'Resource already delivered to this user' });
       }
 
-      const action = parsed.action === 'UNKNOWN' ? (isTextConfirm ? 'CONFIRM' : isDeliverText ? 'DELIVER' : 'GET_ACCESS') : parsed.action;
+      const action = resolvedAction;
       const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
       const username = profile?.username || contact.username || 'there';
 
@@ -305,7 +339,7 @@ export class AutomationEngine {
           automationId: automation.id,
           userId: automation.userId,
         });
-        if (!dm.success) return { status: 'FAILED', message: dm.errorMessage || 'Follow-gate DM failed' };
+        if (!dm.success) return finish({ status: 'FAILED', message: dm.errorMessage || 'Follow-gate DM failed' });
         await FollowGateService.upsertContact({
           instagramAccountId: realInstagramAccountId,
           igsid: senderId,
@@ -313,7 +347,7 @@ export class AutomationEngine {
           followGateStatus: 'FOLLOW_ASKED',
           lastAutomationId: automation.id,
         });
-        return { status: 'PROCESSED', message: 'Follow-gate reminder sent' };
+        return finish({ status: 'PROCESSED', message: 'Follow-gate reminder sent' });
       }
 
       if (action === 'CONFIRM' || action === 'GET_ACCESS') {
@@ -326,7 +360,7 @@ export class AutomationEngine {
             userId: automation.userId,
             username,
           });
-          if (!dm.success) return { status: 'FAILED', message: dm.errorMessage || 'Unlock card failed' };
+          if (!dm.success) return finish({ status: 'FAILED', message: dm.errorMessage || 'Unlock card failed' });
           await FollowGateService.upsertContact({
             instagramAccountId: realInstagramAccountId,
             igsid: senderId,
@@ -342,7 +376,7 @@ export class AutomationEngine {
               details: { igsid: senderId, automationId: automation.id, method: action === 'CONFIRM' ? 'honor_confirm' : 'get_access_after_claim' },
             },
           });
-          return { status: 'PROCESSED', message: 'Follow claimed; unlock card sent' };
+          return finish({ status: 'PROCESSED', message: 'Follow claimed; unlock card sent' });
         }
       }
 
@@ -358,7 +392,7 @@ export class AutomationEngine {
       });
       if (!dm.success) {
         await prisma.automation.update({ where: { id: automation.id }, data: { totalFailed: { increment: 1 } } });
-        return { status: 'FAILED', message: dm.errorMessage || 'Resource DM failed' };
+        return finish({ status: 'FAILED', message: dm.errorMessage || 'Resource DM failed' });
       }
       await FollowGateService.upsertContact({
         instagramAccountId: realInstagramAccountId,
@@ -369,9 +403,9 @@ export class AutomationEngine {
         delivered: true,
       });
       await prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } });
-      return { status: 'PROCESSED', message: 'Resource delivered after follow-gate' };
+      return finish({ status: 'PROCESSED', message: 'Resource delivered after follow-gate' });
     } catch (error: any) {
-      return { status: 'FAILED', message: error.message || 'Error processing postback click' };
+      return finish({ status: 'FAILED', message: error.message || 'Error processing postback click' });
     }
   }
 }

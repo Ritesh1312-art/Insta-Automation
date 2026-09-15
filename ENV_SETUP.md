@@ -31,6 +31,11 @@ Agar `pn` registered name se match nahi karta, PhonePe/GPay kabhi warning dete h
 | `META_APP_ID` / `META_APP_SECRET` | **You** — Meta Developers |
 | `UPI_ID` | **You** — PhonePe/GPay UPI ID |
 | `UPI_PAYEE_NAME` | **You** — name on that UPI ID |
+| `TELEGRAM_BOT_TOKEN` | Optional — BotFather token; dashboard fallback is available |
+| `TELEGRAM_CHAT_ID` | Optional — numeric admin chat ID; send the bot `/start` |
+| `SMTP_HOST/PORT/USER/PASSWORD/FROM` | Optional — all five are required when enabling transactional email |
+
+`TELEGRAM_WEBHOOK_SECRET` mat daalo. App `AUTH_SECRET` se deterministic HMAC secret banati hai.
 
 ## Cloudflare
 

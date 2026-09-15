@@ -15,6 +15,7 @@ import {
   LogOut,
   CreditCard,
   ShieldCheck,
+  Users,
 } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -37,7 +38,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Plans', href: '/dashboard/pricing', icon: CreditCard },
     { name: 'Logs', href: '/dashboard/logs', icon: Activity },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
-    ...(isAdmin ? [{ name: 'UPI reviews', href: '/dashboard/admin/payments', icon: ShieldCheck }] : []),
+    ...(isAdmin ? [
+      { name: 'UPI reviews', href: '/dashboard/admin/payments', icon: ShieldCheck },
+      { name: 'Users', href: '/dashboard/admin/users', icon: Users },
+    ] : []),
   ];
 
   const logout = async () => {

@@ -5,6 +5,8 @@
 :root {
   --foreground-rgb: 250, 250, 250;
   --background-rgb: 7, 4, 10;
+  --font-outfit: "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+  --font-syne: Impact, "Arial Black", ui-sans-serif, system-ui, sans-serif;
 }
 
 body {

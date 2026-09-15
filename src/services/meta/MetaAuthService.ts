@@ -1,3 +1,5 @@
+export const META_PAGE_WEBHOOK_FIELDS = ['messages', 'messaging_postbacks', 'feed'] as const;
+
 export interface ConnectedInstagramAccount {
   metaUserId: string;
   instagramAccountId: string;
@@ -66,7 +68,7 @@ export class MetaAuthService {
     // Automatically subscribe the Facebook Page to the App to enable webhook event delivery
     try {
       const subResponse = await fetch(
-        `https://graph.facebook.com/${graphApiVersion}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,feed,mention`,
+        `https://graph.facebook.com/${graphApiVersion}/${page.id}/subscribed_apps?subscribed_fields=${META_PAGE_WEBHOOK_FIELDS.join(',')}`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${page.access_token}` },
