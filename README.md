@@ -84,5 +84,4 @@ npx prisma db push
 npm run dev
 ```
 
-
-redeploy 2026-09-16
+redeploy trigger 2026-09-16-2
