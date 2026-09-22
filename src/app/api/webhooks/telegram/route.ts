@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { PaymentReviewError, reviewDirectUpiPayment } from '@/lib/payment-review';
 import {
   answerTelegramCallback,
   editTelegramMessage,
+  isValidTelegramChatId,
   paymentReviewKeyboard,
   paymentTelegramText,
   resolveTelegramConfig,
   sendTelegramMessage,
+  sendTelegramMessageTo,
+  telegramPairingCode,
   verifyTelegramWebhookSecret,
 } from '@/lib/telegram';
 
@@ -19,7 +23,7 @@ type TelegramUpdate = {
     message_id: number;
     text?: string;
     chat: { id: number | string };
-    from?: { id: number | string; username?: string };
+    from?: { id: number | string; username?: string; is_bot?: boolean };
   };
   callback_query?: {
     id: string;
@@ -42,6 +46,50 @@ export async function POST(req: NextRequest) {
     const update = await req.json() as TelegramUpdate;
     const config = await resolveTelegramConfig();
     const chatId = updateChatId(update);
+    const text = update.message?.text?.trim() || '';
+
+    /**
+     * Recovery path for a misconfigured chat ID (the confirmed production fault).
+     * It must run BEFORE the authorized-chat check, otherwise the admin can never
+     * correct a wrong chat ID from Telegram. It is safe because it requires a
+     * secret pairing code derived from AUTH_SECRET, the request has already
+     * passed Telegram's webhook-secret check, and it only ever binds the chat
+     * that proves knowledge of the code. Sent from a human chat, never a bot.
+     */
+    const pairing = text.match(/^\/id(?:@\w+)?\s+(\d{6})\b/);
+    if (pairing && chatId && update.message?.from && !update.message.from.is_bot) {
+      const supplied = Buffer.from(pairing[1]);
+      const expected = Buffer.from(telegramPairingCode());
+      const valid = supplied.length === expected.length && timingSafeEqual(supplied, expected);
+      if (!valid) {
+        await sendTelegramMessageTo(chatId, 'That pairing code is not valid. Copy the code shown on the InstaDM Auto settings page.').catch(() => undefined);
+        return NextResponse.json({ ok: true, ignored: 'bad_pairing_code' });
+      }
+      if (!isValidTelegramChatId(chatId)) {
+        return NextResponse.json({ ok: true, ignored: 'unusable_chat_id' });
+      }
+      if (config.chatIdSource === 'env') {
+        await sendTelegramMessageTo(chatId, [
+          `This chat ID is ${chatId}.`,
+          '',
+          'TELEGRAM_CHAT_ID is set as an environment variable, so it overrides the dashboard and I cannot change it from here.',
+          'Set TELEGRAM_CHAT_ID to the value above in your Vercel project settings (or remove it to manage the chat ID from the dashboard), then redeploy.',
+        ].join('\n')).catch(() => undefined);
+        return NextResponse.json({ ok: true, paired: false, reason: 'env_override' });
+      }
+      await prisma.user.updateMany({ where: { role: 'ADMIN' }, data: { telegramChatId: chatId } });
+      await prisma.auditLog.create({
+        data: { action: 'TELEGRAM_CHAT_PAIRED', details: { chatId, via: 'telegram_pairing_command' } },
+      }).catch(() => undefined);
+      await sendTelegramMessageTo(chatId, [
+        '✅ Paired. This chat is now the InstaDM Auto admin chat.',
+        `Chat ID: ${chatId}`,
+        '',
+        'Payment approval alerts will arrive here. Use /pending to list UPI submissions awaiting review.',
+      ].join('\n')).catch(() => undefined);
+      return NextResponse.json({ ok: true, paired: true });
+    }
+
     if (!config.botToken || !config.chatId || chatId !== config.chatId) {
       if (update.callback_query?.id) {
         await answerTelegramCallback(update.callback_query.id, 'This chat is not authorized.', true).catch(() => undefined);
@@ -49,13 +97,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: 'unauthorized_chat' });
     }
 
-    const command = update.message?.text?.trim().split(/\s+/)[0].toLowerCase();
+    const command = text.split(/\s+/)[0].toLowerCase();
     if (command === '/start') {
       await sendTelegramMessage([
         'InstaDM Auto payment approval bot is ready.',
         '',
         'Commands:',
         '/pending — show pending UPI submissions',
+        '/id <code> — re-bind the admin chat using the code from Settings',
         '',
         'Always verify the UTR and amount in your bank app before tapping Approve.',
       ].join('\n'));
