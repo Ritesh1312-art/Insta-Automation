@@ -15,7 +15,8 @@
     "cf:deploy": "npm run cf:build && npx --yes wrangler deploy"
   },
   "dependencies": {
-    "@prisma/client": "^5.10.2",
+    "@prisma/client": "^5.22.0",
+    "prisma": "^5.22.0",
     "@types/nodemailer": "^8.0.1",
     "@vercel/functions": "^2.2.13",
     "bcryptjs": "^2.4.3",
