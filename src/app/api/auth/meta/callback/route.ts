@@ -3,7 +3,7 @@ import { verifyOAuthState } from '@/lib/auth';
 import { MetaAuthService } from '@/services/meta/MetaAuthService';
 import { encryptToken } from '@/lib/encryption';
 import { prisma } from '@/lib/prisma';
-import { InstagramMediaService } from '@/services/meta/InstagramMediaService';
+import { InstagramMediaService, normalizeMediaType, resolveDisplayUrls } from '@/services/meta/InstagramMediaService';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,13 +28,40 @@ export async function GET(req: NextRequest) {
       create: { userId, metaUserId: account.metaUserId, instagramAccountId: account.instagramAccountId, facebookPageId: account.facebookPageId, instagramUsername: account.instagramUsername, profilePictureUrl: account.profilePictureUrl, accessTokenEncrypted: encryptToken(account.accessToken), scopes: ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_show_list', 'pages_read_engagement', 'business_management'], expiresAt, connectionStatus: 'CONNECTED' },
       update: { userId, metaUserId: account.metaUserId, facebookPageId: account.facebookPageId, instagramUsername: account.instagramUsername, profilePictureUrl: account.profilePictureUrl, accessTokenEncrypted: encryptToken(account.accessToken), expiresAt, connectionStatus: 'CONNECTED' },
     });
-    const media = await InstagramMediaService.fetchMedia(account.instagramAccountId, account.accessToken);
-    await Promise.all(media.map((item) => prisma.media.upsert({
-      where: { instagramMediaId: item.id },
-      create: { instagramAccountId: account.instagramAccountId, instagramMediaId: item.id, mediaType: item.media_type, caption: item.caption || null, permalink: item.permalink || null, mediaUrl: item.media_url || null, thumbnailUrl: item.thumbnail_url || null, timestamp: new Date(item.timestamp) },
-      update: { mediaType: item.media_type, caption: item.caption || null, permalink: item.permalink || null, mediaUrl: item.media_url || null, thumbnailUrl: item.thumbnail_url || null, timestamp: new Date(item.timestamp) },
-    })));
-    return NextResponse.redirect(`${appUrl}/dashboard?connected=true`);
+    // The connection itself is already saved above. A media-sync failure must NOT
+    // roll the user back to "meta_connection_failed" — that previously discarded a
+    // perfectly valid new token and left the account looking unconnected.
+    let syncedCount = 0;
+    try {
+      const media = await InstagramMediaService.fetchMedia(account.instagramAccountId, account.accessToken);
+      for (const item of media) {
+        const { mediaUrl, thumbnailUrl } = resolveDisplayUrls(item);
+        const fields = {
+          mediaType: normalizeMediaType(item),
+          caption: item.caption || null,
+          permalink: item.permalink || null,
+          mediaUrl,
+          thumbnailUrl,
+          timestamp: new Date(item.timestamp),
+        };
+        await prisma.media.upsert({
+          where: { instagramMediaId: item.id },
+          create: { instagramAccountId: account.instagramAccountId, instagramMediaId: item.id, ...fields },
+          update: fields,
+        });
+      }
+      syncedCount = media.length;
+    } catch (mediaError) {
+      console.error('Initial Instagram media sync after connect failed:', mediaError);
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'META_INITIAL_SYNC_FAILED',
+          details: { message: mediaError instanceof Error ? mediaError.message.slice(0, 300) : 'Unknown error' },
+        },
+      }).catch(() => undefined);
+    }
+    return NextResponse.redirect(`${appUrl}/dashboard?connected=true&synced=${syncedCount}`);
   } catch (error) {
     console.error('Meta OAuth callback failed:', error);
     if (userId) await prisma.auditLog.create({ data: { userId, action: 'META_AUTH_CALLBACK_ERROR', details: { message: error instanceof Error ? error.message : 'Unknown error' } } }).catch(() => undefined);

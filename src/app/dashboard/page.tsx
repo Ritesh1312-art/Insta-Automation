@@ -15,6 +15,7 @@ export default function DashboardOverview() {
   const [toast, setToast] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [syncError, setSyncError] = useState('');
+  const [reauthRequired, setReauthRequired] = useState(false);
 
   const load = async (sync = false) => {
     if (sync) setSyncing(true);
@@ -29,6 +30,7 @@ export default function DashboardOverview() {
       const mediaData = await mediaRes.json();
       if (!mediaRes.ok) throw new Error(mediaData.error || 'Unable to load Instagram posts');
       setPosts(mediaData.media || []);
+      setReauthRequired(Boolean(mediaData.reauthorizationRequired));
       if (mediaData.syncError) {
         setSyncError(`Instagram sync failed, so your cached posts are shown: ${mediaData.syncError}`);
       }
@@ -55,7 +57,10 @@ export default function DashboardOverview() {
     if (data.url) window.location.href = data.url;
   };
 
-  const connected = stats?.connectionStatus === 'CONNECTED';
+  // TOKEN_EXPIRED still means an account IS linked: keep showing the studio and the
+  // cached posts, plus the reconnect banner, instead of the "connect first" state.
+  const linkedStatuses = ['CONNECTED', 'TOKEN_EXPIRING', 'TOKEN_EXPIRED', 'ERROR'];
+  const connected = linkedStatuses.includes(stats?.connectionStatus);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
@@ -96,11 +101,22 @@ export default function DashboardOverview() {
         <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">{toast}</div>
       )}
 
-      {syncError && (
+      {reauthRequired ? (
+        <div className="space-y-3 rounded-2xl border border-rose-500/40 bg-rose-950/30 px-4 py-4 text-sm text-rose-100">
+          <div className="flex gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Instagram access has been revoked by Meta (password change or invalidated session). Your cached posts are shown below — reconnect to resume live sync and automations.</span>
+          </div>
+          {syncError && <p className="text-xs text-rose-200/80">{syncError}</p>}
+          <button onClick={handleConnectMeta} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-zinc-950">
+            <Instagram className="h-4 w-4" /> Reconnect Instagram
+          </button>
+        </div>
+      ) : syncError ? (
         <div className="flex gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{syncError}</span>
         </div>
-      )}
+      ) : null}
 
       {errorMessage === 'meta_connection_failed' && (
         <div className="rounded-2xl border border-rose-500/30 bg-rose-950/40 p-5 text-sm text-rose-100">
