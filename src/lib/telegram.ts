@@ -84,7 +84,12 @@ export class TelegramDestinationError extends Error {
  */
 export function explainTelegramSendError(message: string, config: TelegramConfig): string {
   const code = telegramPairingCode();
-  if (/can't send messages to bots/i.test(message)) {
+  // Telegram rewords this rejection over time. TDLib maps USER_IS_BOT to
+  // "Bots can't send messages to bots" historically and to
+  // "The bot can't send messages to the bot" since 2026-05, which the Bot API
+  // then prefixes as "Forbidden: ...". Match every variant so the actionable
+  // guidance below is shown instead of the raw API string.
+  if (/can't send messages to (?:bots|the bot)/i.test(message)) {
     return `Telegram rejected the destination: the configured chat ID (${config.chatId}) is the bot's own account, so the bot is messaging itself. Open a direct chat with your bot in Telegram, send "/id ${code}", and the bot will save your real personal chat ID automatically. The chat ID currently comes from ${config.chatIdSource === 'env' ? 'the TELEGRAM_CHAT_ID environment variable, which must be updated or removed in Vercel' : 'the dashboard/database and will be updated for you'}.`;
   }
   if (/chat not found/i.test(message)) {
