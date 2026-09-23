@@ -58,18 +58,11 @@ export function isValidTelegramChatId(value: string) {
 
 /**
  * A BotFather token is `<bot_user_id>:<secret>`. The numeric prefix IS the bot's
- * own Telegram user ID, so a chat ID equal to that prefix means the app is
- * addressing the bot itself — which Telegram rejects with
- * "Forbidden: the bot can't send messages to bots". This is checkable locally,
- * without calling the Telegram API and without ever revealing the token.
+ * own Telegram user ID, exposed here only so the dashboard can display which bot
+ * a stored token belongs to without ever revealing the token itself.
  */
 export function botIdFromToken(botToken: string): string {
   return (botToken.split(':')[0] || '').trim();
-}
-
-export function chatIdTargetsBotItself(botToken: string, chatId: string): boolean {
-  const botId = botIdFromToken(botToken);
-  return Boolean(botId) && botId === chatId.trim();
 }
 
 /** Six-digit code the admin sends to the bot to bind their real personal chat. */
@@ -183,17 +176,13 @@ export async function sendTelegramMessage(text: string, options: SendOptions = {
 }
 
 /**
- * Sends to an explicit chat. Guards against the self-addressing case up front so
- * the failure is explained rather than bouncing off the Telegram API.
+ * Sends to an explicit chat ID. The configured chat ID is passed straight to the
+ * Telegram sendMessage API; any destination error Telegram actually returns is
+ * translated into human-actionable guidance below.
  */
 export async function sendTelegramMessageTo(chatId: string, text: string, options: SendOptions = {}) {
   const config = await resolveTelegramConfig();
   if (!config.botToken) throw new Error('Telegram bot token is not configured');
-  if (chatIdTargetsBotItself(config.botToken, chatId)) {
-    throw new TelegramDestinationError(
-      explainTelegramSendError("Forbidden: the bot can't send messages to bots", { ...config, chatId }),
-    );
-  }
   try {
     return await telegramApi(config.botToken, 'sendMessage', {
       chat_id: chatId,

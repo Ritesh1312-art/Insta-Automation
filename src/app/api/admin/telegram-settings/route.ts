@@ -4,7 +4,6 @@ import { encryptToken } from '@/lib/encryption';
 import { isAuthError, requireAdmin } from '@/lib/require-admin';
 import {
   botIdFromToken,
-  chatIdTargetsBotItself,
   configureTelegramWebhook,
   getTelegramBotIdentity,
   getTelegramWebhookInfo,
@@ -22,11 +21,6 @@ async function statusPayload(options: { probe?: boolean } = {}) {
   const expectedWebhookUrl = process.env.APP_URL
     ? `${process.env.APP_URL.replace(/\/$/, '')}/api/webhooks/telegram`
     : null;
-
-  // Detected locally from the token prefix, so a broken destination is reported
-  // even when the Telegram API cannot be reached.
-  const chatIdIsBotItself = Boolean(config.botToken && config.chatId)
-    && chatIdTargetsBotItself(config.botToken, config.chatId);
 
   let botUsername: string | null = null;
   let botId: string | null = config.botToken ? botIdFromToken(config.botToken) : null;
@@ -74,12 +68,8 @@ async function statusPayload(options: { probe?: boolean } = {}) {
     webhookPendingUpdates,
     botId,
     botUsername,
-    chatIdIsBotItself,
     pairingCode: telegramPairingCode(),
     probeError,
-    destinationHint: chatIdIsBotItself
-      ? `The saved chat ID (${config.chatId}) is this bot's own account, so Telegram refuses delivery. Open a direct chat with the bot and send "/id ${telegramPairingCode()}" to bind your personal chat.`
-      : null,
   };
 }
 
@@ -112,14 +102,6 @@ export async function POST(req: NextRequest) {
     }
     if (chatId && !isValidTelegramChatId(chatId)) {
       return NextResponse.json({ error: 'Telegram chat ID must contain only digits (a group ID can start with -)' }, { status: 400 });
-    }
-    // Block the exact misconfiguration behind the production failure: saving the
-    // bot's own ID as the destination. Telegram can never deliver to it.
-    const effectiveToken = botToken || (await resolveTelegramConfig()).botToken;
-    if (chatId && effectiveToken && chatIdTargetsBotItself(effectiveToken, chatId)) {
-      return NextResponse.json({
-        error: `That chat ID is the bot's own account, so Telegram will reject every message ("the bot can't send messages to bots"). Open a direct chat with your bot and send "/id ${telegramPairingCode()}" to capture your personal chat ID.`,
-      }, { status: 400 });
     }
 
     const data: { telegramBotTokenEncrypted?: string; telegramChatId?: string } = {};

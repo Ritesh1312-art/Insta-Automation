@@ -16,10 +16,8 @@ type TelegramStatus = {
   webhookPendingUpdates?: number | null;
   botId?: string | null;
   botUsername?: string | null;
-  chatIdIsBotItself?: boolean;
   pairingCode?: string;
   probeError?: string | null;
-  destinationHint?: string | null;
 };
 
 export default function SettingsPage() {
@@ -142,22 +140,6 @@ export default function SettingsPage() {
               <label className="text-xs font-semibold text-slate-300">Bot token {telegramStatus?.botTokenConfigured && <span className="font-normal text-emerald-400">({telegramStatus.tokenSource})</span>}<input type="password" value={telegramToken} onChange={(event) => setTelegramToken(event.target.value)} disabled={telegramStatus?.tokenSource === 'env'} placeholder={telegramStatus?.botTokenConfigured ? 'Stored — leave blank to keep' : '123456789:BotFatherToken'} className={`${inputClass} mt-1 font-mono disabled:opacity-50`} /></label>
               <label className="text-xs font-semibold text-slate-300">Admin chat ID {telegramStatus?.chatIdSource && <span className="font-normal text-emerald-400">({telegramStatus.chatIdSource})</span>}<input value={telegramChatId} onChange={(event) => setTelegramChatId(event.target.value)} disabled={telegramStatus?.chatIdSource === 'env'} placeholder="123456789" className={`${inputClass} mt-1 font-mono disabled:opacity-50`} /></label>
             </div>
-            {telegramStatus?.chatIdIsBotItself && (
-              <div className="space-y-2 rounded-xl border border-rose-500/40 bg-rose-950/30 p-4 text-xs text-rose-100">
-                <p className="font-bold">Chat ID points at the bot itself — Telegram will reject every message.</p>
-                <p>{telegramStatus.destinationHint}</p>
-                {telegramStatus.pairingCode && (
-                  <p>
-                    In Telegram, open a direct chat with{' '}
-                    {telegramStatus.botUsername ? <span className="font-mono">@{telegramStatus.botUsername}</span> : 'your bot'}, press Start, then send:{' '}
-                    <span className="rounded bg-slate-950 px-2 py-1 font-mono text-rose-200">/id {telegramStatus.pairingCode}</span>
-                  </p>
-                )}
-                {telegramStatus.chatIdSource === 'env' && (
-                  <p className="font-semibold">TELEGRAM_CHAT_ID is set in the environment, so it wins over the dashboard. Update or remove it in Vercel, then redeploy.</p>
-                )}
-              </div>
-            )}
             <div className="space-y-1 rounded-lg bg-slate-900 p-3 font-mono text-[11px] text-slate-400">
               {telegramStatus?.botUsername && <div>Bot: <span className="text-emerald-400">@{telegramStatus.botUsername}</span> (id {telegramStatus.botId})</div>}
               {telegramStatus?.webhookUrl && <div className="break-all">Expected webhook: {telegramStatus.webhookUrl}</div>}
