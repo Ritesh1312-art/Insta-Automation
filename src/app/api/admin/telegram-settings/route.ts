@@ -120,8 +120,10 @@ export async function POST(req: NextRequest) {
     }
 
     const config = await resolveTelegramConfig();
-    if (!config.botToken || !config.chatId) {
-      return NextResponse.json({ error: 'Bot token and chat ID are both required (dashboard or environment)' }, { status: 400 });
+    // Register the webhook before a destination exists so /id can pair the
+    // Telegram group. Requiring a chat ID here creates a setup deadlock.
+    if (!config.botToken) {
+      return NextResponse.json({ error: 'Bot token is required (dashboard or environment)' }, { status: 400 });
     }
 
     let webhook: { url: string } | null = null;

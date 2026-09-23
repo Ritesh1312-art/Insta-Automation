@@ -84,7 +84,7 @@ export class TelegramDestinationError extends Error {
  */
 export function explainTelegramSendError(message: string, config: TelegramConfig): string {
   const code = telegramPairingCode();
-  if (/can't send messages to bots/i.test(message)) {
+  if (/can't send messages to (?:bots|the bot)/i.test(message)) {
     return `Telegram rejected the destination: the configured chat ID (${config.chatId}) is the bot's own account, so the bot is messaging itself. Open a direct chat with your bot in Telegram, send "/id ${code}", and the bot will save your real personal chat ID automatically. The chat ID currently comes from ${config.chatIdSource === 'env' ? 'the TELEGRAM_CHAT_ID environment variable, which must be updated or removed in Vercel' : 'the dashboard/database and will be updated for you'}.`;
   }
   if (/chat not found/i.test(message)) {
@@ -218,7 +218,9 @@ export async function editTelegramMessage(chatId: string, messageId: number, tex
 export async function configureTelegramWebhook() {
   const config = await resolveTelegramConfig();
   const appUrl = (process.env.APP_URL || '').trim().replace(/\/$/, '');
-  if (!config.botToken || !config.chatId) throw new Error('Telegram bot token and chat ID are not configured');
+  // A chat ID is intentionally not required here: the webhook must be active
+  // before an admin can send /id from Telegram to pair a chat or group.
+  if (!config.botToken) throw new Error('Telegram bot token is not configured');
   if (!/^https:\/\//.test(appUrl)) throw new Error('APP_URL must be an HTTPS URL before the Telegram webhook can be registered');
 
   await telegramApi(config.botToken, 'setWebhook', {
