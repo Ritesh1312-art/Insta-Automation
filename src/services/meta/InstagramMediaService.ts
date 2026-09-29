@@ -51,16 +51,32 @@ export class InstagramMediaService {
       'children{id,media_type,media_url,thumbnail_url}',
     ].join(',');
 
-    const response = await fetch(
-      `https://graph.facebook.com/${version}/${instagramAccountId}/media?fields=${encodeURIComponent(fields)}&limit=50`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store' },
-    );
-    const data = await response.json();
-    if (!response.ok) {
-      // Preserve code/subcode so callers can tell "token dead, reconnect" from
-      // "Meta is having a bad day, keep serving cache".
-      throw new MetaGraphError(data?.error, 'Unable to fetch Instagram media', response.status);
+    let nextUrl: string | null = `https://graph.facebook.com/${version}/${instagramAccountId}/media?fields=${encodeURIComponent(fields)}&limit=50`;
+    const collected: InstagramMediaItem[] = [];
+
+    // Fetch up to 200 recent items. Following only graph.facebook.com paging URLs
+    // prevents an upstream response from turning this server into an SSRF proxy.
+    for (let page = 0; page < 4 && nextUrl; page += 1) {
+      const parsedUrl: URL = new URL(nextUrl);
+      if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'graph.facebook.com') {
+        throw new Error('Meta returned an invalid media pagination URL');
+      }
+      const response: Response = await fetch(parsedUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      const data: any = await response.json();
+      if (!response.ok) {
+        // Preserve code/subcode so callers can tell "token dead, reconnect" from
+        // "Meta is having a bad day, keep serving cache".
+        throw new MetaGraphError(data?.error, 'Unable to fetch Instagram media', response.status);
+      }
+      collected.push(...(data.data || []).filter(
+        (item: unknown): item is InstagramMediaItem => Boolean(item && typeof (item as InstagramMediaItem).id === 'string'),
+      ));
+      nextUrl = typeof data.paging?.next === 'string' ? data.paging.next : null;
     }
-    return (data.data || []).filter((item: unknown): item is InstagramMediaItem => Boolean(item && typeof (item as InstagramMediaItem).id === 'string'));
+
+    return Array.from(new Map(collected.map((item) => [item.id, item])).values());
   }
 }

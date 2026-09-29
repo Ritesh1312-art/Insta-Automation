@@ -1,13 +1,16 @@
 {
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "instadm-auto",
-  "compatibility_date": "2026-04-28",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
   "main": ".open-next/worker.js",
+  "placement": { "mode": "smart" },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": { "enabled": true }
   }
 }

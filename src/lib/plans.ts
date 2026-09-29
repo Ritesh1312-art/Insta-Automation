@@ -8,6 +8,7 @@ export interface Plan {
   dmQuota: number;
   quotaLabel: string;
   automations: string;
+  activeAutomationLimit: number | null;
   features: string[];
   highlighted?: boolean;
   cta: string;
@@ -22,6 +23,7 @@ export const PLANS: Record<PlanId, Plan> = {
     dmQuota: 30,
     quotaLabel: '30 DMs / month',
     automations: '1 active automation',
+    activeAutomationLimit: 1,
     features: [
       '30 official Meta private replies / month',
       '1 active automation',
@@ -38,6 +40,7 @@ export const PLANS: Record<PlanId, Plan> = {
     dmQuota: 250,
     quotaLabel: '250 DMs / month',
     automations: '3 active automations',
+    activeAutomationLimit: 3,
     features: [
       '250 DMs / month',
       '3 active automations',
@@ -54,6 +57,7 @@ export const PLANS: Record<PlanId, Plan> = {
     dmQuota: 750,
     quotaLabel: '750 DMs / month',
     automations: '8 active automations',
+    activeAutomationLimit: 8,
     highlighted: true,
     features: [
       '750 DMs / month',
@@ -71,6 +75,7 @@ export const PLANS: Record<PlanId, Plan> = {
     dmQuota: 2000,
     quotaLabel: '2,000 DMs / month',
     automations: '20 active automations',
+    activeAutomationLimit: 20,
     features: [
       '2,000 DMs / month',
       '20 active automations',
@@ -87,6 +92,7 @@ export const PLANS: Record<PlanId, Plan> = {
     dmQuota: 5000,
     quotaLabel: '5,000+ DMs / month',
     automations: 'Unlimited automations*',
+    activeAutomationLimit: null,
     features: [
       '5,000 DMs / month (hard cap, not unlimited)',
       'Unlimited automations on one IG account',

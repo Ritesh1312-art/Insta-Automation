@@ -3,7 +3,7 @@ import { decryptToken } from '@/lib/encryption';
 import { KeywordMatcher } from './KeywordMatcher';
 import { InstagramMessagingService } from '@/services/meta/InstagramMessagingService';
 import { FollowGateService, isHonorFollowConfirm, parseButtonPayload } from './FollowGateService';
-import { assertDmQuota, incrementDmUsage } from '@/lib/quota';
+import { assertDmQuota, releaseDmQuota, reserveDmQuota } from '@/lib/quota';
 
 export interface CommentEventPayload {
   instagramAccountId: string;
@@ -14,7 +14,12 @@ export interface CommentEventPayload {
   commentText: string;
   rawPayload: unknown;
 }
-type Result = { status: 'PROCESSED' | 'IGNORED' | 'FAILED'; message: string; automationRunId?: string };
+type Result = {
+  status: 'PROCESSED' | 'IGNORED' | 'FAILED';
+  message: string;
+  automationRunId?: string;
+  errorCategory?: string;
+};
 
 function retryAt(retryCount: number) {
   return new Date(Date.now() + Math.min(60 * 60 * 1000, 30_000 * 2 ** retryCount));
@@ -22,10 +27,51 @@ function retryAt(retryCount: number) {
 
 export class AutomationEngine {
   public static async ingestCommentEvent(payload: CommentEventPayload) {
-    const eventId = `${payload.instagramAccountId}:${payload.commentId}`;
+    const eventId = `comment:${payload.instagramAccountId}:${payload.commentId}`;
+    const connection = await prisma.metaConnection.findFirst({
+      where: { OR: [{ instagramAccountId: payload.instagramAccountId }, { facebookPageId: payload.instagramAccountId }] },
+      select: { instagramAccountId: true },
+    });
     return prisma.webhookEvent.upsert({
       where: { eventId },
-      create: { ...payload, rawPayload: payload.rawPayload as object, eventId, eventType: 'comments', status: 'RECEIVED' },
+      create: {
+        instagramAccountId: connection?.instagramAccountId || null,
+        mediaId: payload.mediaId,
+        commentId: payload.commentId,
+        commenterId: payload.commenterId,
+        commenterUsername: payload.commenterUsername,
+        commentText: payload.commentText,
+        rawPayload: payload.rawPayload as object,
+        eventId,
+        eventType: 'comments',
+        status: 'RECEIVED',
+      },
+      update: {},
+    });
+  }
+
+  public static async ingestMessagingEvent(payload: {
+    eventId: string;
+    instagramAccountId: string;
+    senderId: string;
+    postbackPayload: string;
+    rawPayload: unknown;
+  }) {
+    const connection = await prisma.metaConnection.findFirst({
+      where: { OR: [{ instagramAccountId: payload.instagramAccountId }, { facebookPageId: payload.instagramAccountId }] },
+      select: { instagramAccountId: true },
+    });
+    return prisma.webhookEvent.upsert({
+      where: { eventId: payload.eventId },
+      create: {
+        eventId: payload.eventId,
+        eventType: 'messaging',
+        instagramAccountId: connection?.instagramAccountId || null,
+        commenterId: payload.senderId,
+        commentText: payload.postbackPayload,
+        rawPayload: payload.rawPayload as object,
+        status: 'RECEIVED',
+      },
       update: {},
     });
   }
@@ -36,14 +82,11 @@ export class AutomationEngine {
   }
 
   public static async processWebhookEvent(eventId: string): Promise<Result> {
-    const claimed = await prisma.webhookEvent.updateMany({
-      where: {
-        id: eventId,
-        status: { in: ['RECEIVED', 'RETRYING', 'PROCESSING'] },
-        OR: [{ status: { in: ['RECEIVED', 'RETRYING'] } }, { processingStartedAt: { lte: new Date(Date.now() - 10 * 60 * 1000) } }],
-      },
-      data: { status: 'PROCESSING', processingStartedAt: new Date() },
-    });
+    const queued = await prisma.webhookEvent.findUnique({ where: { id: eventId }, select: { eventType: true } });
+    if (!queued) return { status: 'IGNORED', message: 'Webhook event not found' };
+    if (queued.eventType === 'messaging') return this.processStoredMessagingEvent(eventId);
+
+    const claimed = await this.claimWebhookEvent(eventId);
     if (claimed.count === 0) return { status: 'IGNORED', message: 'Webhook event is already being processed or completed' };
     const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
     if (!event?.instagramAccountId || !event.mediaId || !event.commentId || !event.commenterId || event.commentText === null) {
@@ -71,15 +114,27 @@ export class AutomationEngine {
       where: { instagramAccountId: realIgAccountId, status: 'ACTIVE', OR: [{ mediaId: media.id }, { mediaId: null }] },
       include: { resource: true },
     });
-    const automation = automations.find((candidate: { keywords: string[]; matchingMode: string; triggerType: string }) =>
-      KeywordMatcher.isMatch(event.commentText || '', candidate.keywords, candidate.matchingMode as any, candidate.triggerType as any).matched
+    // A post-specific flow always wins over an account-wide fallback.
+    automations.sort((left, right) => {
+      const leftSpecific = left.mediaId === media.id ? 1 : 0;
+      const rightSpecific = right.mediaId === media.id ? 1 : 0;
+      return rightSpecific - leftSpecific || left.createdAt.getTime() - right.createdAt.getTime();
+    });
+    const automation = automations.find((candidate) =>
+      KeywordMatcher.isMatch(
+        event.commentText || '',
+        candidate.keywords,
+        candidate.matchingMode as 'EXACT' | 'CONTAINS' | 'STARTS_WITH' | 'CASE_SENSITIVE',
+        candidate.triggerType as 'ANY_COMMENT' | 'KEYWORD',
+      ).matched
     );
     if (!automation) return this.finishEvent(eventId, 'IGNORED', 'No active automation matched this comment');
 
-    if (automation.ignoreOwnerComments && event.commenterUsername && connection.instagramUsername) {
-      if (event.commenterUsername.toLowerCase() === connection.instagramUsername.toLowerCase()) {
-        return this.finishEvent(eventId, 'IGNORED', 'Owner comment ignored');
-      }
+    if (automation.ignoreOwnerComments) {
+      const ownerById = event.commenterId === realIgAccountId;
+      const ownerByUsername = Boolean(event.commenterUsername && connection.instagramUsername
+        && event.commenterUsername.toLowerCase() === connection.instagramUsername.toLowerCase());
+      if (ownerById || ownerByUsername) return this.finishEvent(eventId, 'IGNORED', 'Owner comment ignored');
     }
 
     const quota = await assertDmQuota(automation.userId);
@@ -126,13 +181,22 @@ export class AutomationEngine {
       const text = (automation.dmMessageTemplate || automation.resource?.textContent || 'Here is your resource.')
         .replace(/\{\{username\}\}/g, event.commenterUsername || 'there')
         .replace(/\{\{resource_url\}\}/g, automation.resource?.url || '');
-      dm = await InstagramMessagingService.sendPrivateReply({
-        instagramAccountId: event.instagramAccountId,
-        commentId: event.commentId,
-        messageText: text,
-        accessToken,
-      });
-      if (dm.success) await incrementDmUsage(automation.userId);
+      const reservation = await reserveDmQuota(automation.userId);
+      if (!reservation.ok) {
+        dm = { success: false, errorCategory: 'VALIDATION' as const, errorMessage: reservation.message };
+      } else {
+        dm = await InstagramMessagingService.sendPrivateReply({
+          instagramAccountId: realIgAccountId,
+          commentId: event.commentId,
+          messageText: text,
+          accessToken,
+        });
+        if (!dm.success) await releaseDmQuota(automation.userId, reservation);
+      }
+    }
+
+    if (!dm.success) {
+      return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed');
     }
 
     let publicReplyStatus = 'SKIPPED';
@@ -146,10 +210,6 @@ export class AutomationEngine {
       });
       publicReplyStatus = publicReply.success ? 'SENT' : 'FAILED';
       publicReplyId = publicReply.responseId;
-    }
-
-    if (!dm.success) {
-      return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed');
     }
 
     await prisma.$transaction([
@@ -183,6 +243,58 @@ export class AutomationEngine {
       }),
     ]);
     return { status: 'PROCESSED', message: automation.followGateEnabled ? 'Follow-gate step 1 sent' : 'Private reply accepted by Meta', automationRunId: run.id };
+  }
+
+  private static claimWebhookEvent(eventId: string) {
+    const now = new Date();
+    return prisma.webhookEvent.updateMany({
+      where: {
+        id: eventId,
+        OR: [
+          { status: 'RECEIVED' },
+          { status: 'RETRYING', nextRetryAt: { lte: now } },
+          { status: 'PROCESSING', processingStartedAt: { lte: new Date(now.getTime() - 10 * 60 * 1000) } },
+        ],
+      },
+      data: { status: 'PROCESSING', processingStartedAt: now },
+    });
+  }
+
+  private static async processStoredMessagingEvent(eventId: string): Promise<Result> {
+    const claimed = await this.claimWebhookEvent(eventId);
+    if (claimed.count === 0) return { status: 'IGNORED', message: 'Messaging event is already processing or completed' };
+    const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
+    if (!event?.instagramAccountId || !event.commenterId || !event.commentText) {
+      return this.finishEvent(eventId, 'IGNORED', 'Incomplete messaging event');
+    }
+
+    const result = await this.processMessagingPostback({
+      instagramAccountId: event.instagramAccountId,
+      senderId: event.commenterId,
+      postbackPayload: event.commentText,
+      rawPayload: event.rawPayload,
+    });
+    const retryCount = event.retryCount + 1;
+    const retryable = result.status === 'FAILED'
+      && (result.errorCategory === 'TRANSIENT' || result.errorCategory === 'RATE_LIMIT')
+      && retryCount <= 5;
+    const status = result.status === 'PROCESSED'
+      ? 'PROCESSED'
+      : result.status === 'IGNORED'
+        ? 'IGNORED'
+        : retryable ? 'RETRYING' : 'FAILED';
+    await prisma.webhookEvent.update({
+      where: { id: event.id },
+      data: {
+        status,
+        errorDetails: result.status === 'PROCESSED' ? null : result.message,
+        retryCount: result.status === 'FAILED' ? retryCount : event.retryCount,
+        nextRetryAt: retryable ? retryAt(retryCount) : null,
+        processedAt: retryable ? null : new Date(),
+        processingStartedAt: null,
+      },
+    });
+    return result;
   }
 
   public static async processDueEvents(limit = 25) {
@@ -221,7 +333,7 @@ export class AutomationEngine {
         data: { status: retriesLeft ? 'RETRYING' : 'FAILED', errorDetails: message, retryCount, nextRetryAt: retriesLeft ? retryAt(retryCount) : null, processedAt: retriesLeft ? null : new Date(), processingStartedAt: null },
       }),
     ]);
-    return { status: 'FAILED', message, automationRunId: runId };
+    return { status: 'FAILED', message, automationRunId: runId, errorCategory: category };
   }
 
   public static async processMessagingPostback(payload: {
@@ -285,30 +397,37 @@ export class AutomationEngine {
       const accessToken = decryptToken(connection.accessTokenEncrypted);
       const igUsername = connection.instagramUsername || 'instagram';
 
-      let automation = parsed.automationId
-        ? await prisma.automation.findUnique({ where: { id: parsed.automationId }, include: { resource: true } })
-        : null;
-      if (!automation) {
-        const contactHint = await prisma.contact.findUnique({
-          where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
-        });
-        if (contactHint?.lastAutomationId) {
-          automation = await prisma.automation.findUnique({ where: { id: contactHint.lastAutomationId }, include: { resource: true } });
-        }
+      const existingContact = await prisma.contact.findUnique({
+        where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
+      });
+      // Free-form DONE/RESOURCE messages are valid only in an existing gate
+      // conversation. This prevents a random DM from selecting the latest flow.
+      if (!parsed.automationId && !existingContact?.lastAutomationId) {
+        return finish({ status: 'IGNORED', message: 'No active follow-gate conversation for this user' });
       }
-      if (!automation) {
-        automation = await prisma.automation.findFirst({
-          where: { instagramAccountId: realInstagramAccountId, status: 'ACTIVE' },
-          orderBy: { updatedAt: 'desc' },
+
+      const automationId = parsed.automationId || existingContact?.lastAutomationId;
+      const automation = automationId
+        ? await prisma.automation.findFirst({
+          where: { id: automationId, instagramAccountId: realInstagramAccountId },
           include: { resource: true },
-        });
-      }
+        })
+        : null;
       if (automation) {
         auditUserId = automation.userId;
         auditAutomationId = automation.id;
       }
       if (!automation || automation.status !== 'ACTIVE') {
-        return finish({ status: 'IGNORED', message: 'Automation not found or inactive' });
+        return finish({ status: 'IGNORED', message: 'Automation not found, inactive, or belongs to another account' });
+      }
+
+      if (automation.followGateEnabled && resolvedAction === 'CONFIRM'
+        && (!existingContact || !['FOLLOW_ASKED', 'CLAIMED', 'UNLOCKED'].includes(existingContact.followGateStatus))) {
+        return finish({ status: 'IGNORED', message: 'Follow confirmation arrived before a follow request' });
+      }
+      if (automation.followGateEnabled && resolvedAction === 'DELIVER'
+        && (!existingContact || !['CLAIMED', 'UNLOCKED'].includes(existingContact.followGateStatus))) {
+        return finish({ status: 'IGNORED', message: 'Resource is still locked' });
       }
 
       const quota = await assertDmQuota(automation.userId);
@@ -339,7 +458,7 @@ export class AutomationEngine {
           automationId: automation.id,
           userId: automation.userId,
         });
-        if (!dm.success) return finish({ status: 'FAILED', message: dm.errorMessage || 'Follow-gate DM failed' });
+        if (!dm.success) return finish({ status: 'FAILED', message: dm.errorMessage || 'Follow-gate DM failed', errorCategory: dm.errorCategory });
         await FollowGateService.upsertContact({
           instagramAccountId: realInstagramAccountId,
           igsid: senderId,
@@ -360,7 +479,7 @@ export class AutomationEngine {
             userId: automation.userId,
             username,
           });
-          if (!dm.success) return finish({ status: 'FAILED', message: dm.errorMessage || 'Unlock card failed' });
+          if (!dm.success) return finish({ status: 'FAILED', message: dm.errorMessage || 'Unlock card failed', errorCategory: dm.errorCategory });
           await FollowGateService.upsertContact({
             instagramAccountId: realInstagramAccountId,
             igsid: senderId,
@@ -392,7 +511,7 @@ export class AutomationEngine {
       });
       if (!dm.success) {
         await prisma.automation.update({ where: { id: automation.id }, data: { totalFailed: { increment: 1 } } });
-        return finish({ status: 'FAILED', message: dm.errorMessage || 'Resource DM failed' });
+        return finish({ status: 'FAILED', message: dm.errorMessage || 'Resource DM failed', errorCategory: dm.errorCategory });
       }
       await FollowGateService.upsertContact({
         instagramAccountId: realInstagramAccountId,
@@ -404,8 +523,12 @@ export class AutomationEngine {
       });
       await prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } });
       return finish({ status: 'PROCESSED', message: 'Resource delivered after follow-gate' });
-    } catch (error: any) {
-      return finish({ status: 'FAILED', message: error.message || 'Error processing postback click' });
+    } catch (error: unknown) {
+      return finish({
+        status: 'FAILED',
+        message: error instanceof Error ? error.message : 'Error processing postback click',
+        errorCategory: 'TRANSIENT',
+      });
     }
   }
 }

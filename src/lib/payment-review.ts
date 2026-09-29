@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPlan, normalizePlanId } from '@/lib/plans';
 import { planAssignmentData } from '@/lib/quota';
@@ -51,10 +51,18 @@ export async function reviewDirectUpiPayment(params: {
         data: planAssignmentData(planId),
       });
     } else {
-      await tx.user.update({
-        where: { id: existing.userId },
-        data: { subscriptionStatus: 'INACTIVE' },
-      });
+      // A rejected renewal must not cancel the user's current plan. Only repair
+      // the legacy PENDING_PAYMENT flag used by older deployments.
+      const owner = await tx.user.findUnique({ where: { id: existing.userId } });
+      if (owner?.subscriptionStatus === 'PENDING_PAYMENT') {
+        const currentPlan = getPlan(owner.plan);
+        const paidStillActive = currentPlan.priceInr > 0 && owner.planActivatedAt
+          && Date.now() - owner.planActivatedAt.getTime() < 30 * 24 * 60 * 60 * 1000;
+        await tx.user.update({
+          where: { id: existing.userId },
+          data: { subscriptionStatus: currentPlan.priceInr === 0 || paidStillActive ? 'ACTIVE' : 'EXPIRED' },
+        });
+      }
     }
 
     await tx.auditLog.create({

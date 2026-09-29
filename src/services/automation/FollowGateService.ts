@@ -1,8 +1,18 @@
 import { prisma } from '@/lib/prisma';
-import { incrementDmUsage } from '@/lib/quota';
+import { releaseDmQuota, reserveDmQuota } from '@/lib/quota';
 import { InstagramMessagingService, type ApiResponse } from '@/services/meta/InstagramMessagingService';
 
 export type GateStatus = 'NEW' | 'FOLLOW_ASKED' | 'CLAIMED' | 'UNLOCKED' | 'DELIVERED';
+
+type DispatchParams = {
+  mode: 'comment' | 'direct';
+  commentId?: string;
+  recipientId?: string;
+  instagramAccountId: string;
+  accessToken: string;
+  template: any;
+  fallback: string;
+};
 
 const CONFIRM_PHRASES = [
   'done',
@@ -88,7 +98,7 @@ export class FollowGateService {
       `2) Reply DONE or tap I Followed.\n\n` +
       `We cannot detect follows automatically. Confirm only after you follow.`;
 
-    const result = await this.dispatch({
+    return this.dispatchWithinQuota(params.userId, {
       mode: params.mode,
       commentId: params.commentId,
       recipientId: params.recipientId,
@@ -97,8 +107,6 @@ export class FollowGateService {
       template,
       fallback,
     });
-    if (result.success) await incrementDmUsage(params.userId);
-    return result;
   }
 
   public static async sendUnlockCard(params: {
@@ -116,7 +124,7 @@ export class FollowGateService {
       [{ type: 'postback', title: 'Send my resource', payload: `DELIVER_RESOURCE_${params.automationId}` }]
     );
     const fallback = `Access unlocked, ${name}. Reply RESOURCE or tap the button to receive your content.`;
-    const result = await this.dispatch({
+    return this.dispatchWithinQuota(params.userId, {
       mode: 'direct',
       recipientId: params.recipientId,
       instagramAccountId: params.instagramAccountId,
@@ -124,8 +132,6 @@ export class FollowGateService {
       template,
       fallback,
     });
-    if (result.success) await incrementDmUsage(params.userId);
-    return result;
   }
 
   public static async sendResource(params: {
@@ -146,7 +152,7 @@ export class FollowGateService {
     const template = buttons.length
       ? genericCard('Your resource is ready', body.slice(0, 80), buttons)
       : null;
-    const result = await this.dispatch({
+    return this.dispatchWithinQuota(params.userId, {
       mode: 'direct',
       recipientId: params.recipientId,
       instagramAccountId: params.instagramAccountId,
@@ -154,8 +160,6 @@ export class FollowGateService {
       template,
       fallback: body,
     });
-    if (result.success) await incrementDmUsage(params.userId);
-    return result;
   }
 
   public static async upsertContact(params: {
@@ -196,15 +200,18 @@ export class FollowGateService {
     });
   }
 
-  private static async dispatch(params: {
-    mode: 'comment' | 'direct';
-    commentId?: string;
-    recipientId?: string;
-    instagramAccountId: string;
-    accessToken: string;
-    template: any;
-    fallback: string;
-  }): Promise<ApiResponse> {
+  private static async dispatchWithinQuota(userId: string, params: DispatchParams): Promise<ApiResponse> {
+    const reservation = await reserveDmQuota(userId);
+    if (!reservation.ok) {
+      return { success: false, errorCategory: 'VALIDATION', errorMessage: reservation.message };
+    }
+
+    const result = await this.dispatch(params);
+    if (!result.success) await releaseDmQuota(userId, reservation);
+    return result;
+  }
+
+  private static async dispatch(params: DispatchParams): Promise<ApiResponse> {
     if (params.mode === 'comment' && params.commentId) {
       if (params.template) {
         const templated = await InstagramMessagingService.sendPrivateTemplateReply({

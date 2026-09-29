@@ -1,10 +1,12 @@
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma"
+  engineType = "client"
+  runtime    = "cloudflare"
 }
 
 model User {
@@ -24,7 +26,8 @@ model User {
   razorpayCustomerId     String?
   telegramBotTokenEncrypted String?
   telegramChatId              String?
-  subscriptionStatus     String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED, PENDING_PAYMENT
+  subscriptionStatus     String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED
+  sessionVersion         Int                @default(0)
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
   metaConnections        MetaConnection[]
@@ -42,7 +45,7 @@ model DirectUpiPayment {
   payerName  String
   payerUpiId String
   planType   String    // FREE, STANDARD, PREMIUM, PREMIUM_PRO, PREMIUM_PRO_PLUS
-  amount     Float
+  amount     Int
   utrNumber  String    @unique
   status     String    @default("PENDING_REVIEW") // PENDING_REVIEW, VERIFIED, REJECTED
   approvedAt DateTime?
@@ -219,4 +222,16 @@ model AuditLog {
   details   Json?
   ipAddress String?
   createdAt DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
+}
+
+model RateLimitBucket {
+  key         String   @id
+  count       Int      @default(1)
+  windowStart DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([expiresAt])
 }

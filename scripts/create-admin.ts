@@ -11,7 +11,8 @@
  * No credentials are stored anywhere in git. The password is hashed with
  * bcrypt before it touches the database. For the web flow use /setup once.
  */
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../src/generated/prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 
 function fail(message) {
@@ -42,7 +43,9 @@ if (!validPassword) {
 }
 if (!process.env.DATABASE_URL) fail('DATABASE_URL is not set — export the production connection string first');
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+});
 const normalizedEmail = email.trim().toLowerCase();
 
 try {
@@ -63,7 +66,7 @@ try {
       subscriptionStatus: 'ACTIVE',
       quotaResetAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     },
-    update: { passwordHash, role: 'ADMIN' },
+    update: { passwordHash, role: 'ADMIN', sessionVersion: { increment: 1 } },
   });
 
   console.log('Admin ready:', user.email, `(id ${user.id})`);

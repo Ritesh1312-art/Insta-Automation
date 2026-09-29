@@ -3,9 +3,12 @@ import { timingSafeEqual } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
+import { consumeRateLimit, rateLimitResponse, requestIp } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
+    const rate = await consumeRateLimit({ scope: 'initial-admin-setup', identifier: requestIp(request), limit: 10, windowMs: 60 * 60 * 1000 });
+    if (!rate.allowed) return NextResponse.json({ error: 'Too many setup attempts. Try again later.' }, rateLimitResponse(rate));
     const { email, password, token } = await request.json();
     const setupToken = process.env.SETUP_TOKEN;
     const receivedToken = typeof token === 'string' ? Buffer.from(token) : null;
