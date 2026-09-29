@@ -3,13 +3,20 @@ import { timingSafeEqual } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
-import { consumeRateLimit, rateLimitResponse, requestIp } from '@/lib/rate-limit';
+import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
     const rate = await consumeRateLimit({ scope: 'initial-admin-setup', identifier: requestIp(request), limit: 10, windowMs: 60 * 60 * 1000 });
     if (!rate.allowed) return NextResponse.json({ error: 'Too many setup attempts. Try again later.' }, rateLimitResponse(rate));
     const { email, password, token } = await request.json();
+    const allowed = await consumeRateLimit({
+      action: 'RATE_LIMIT_ADMIN_SETUP',
+      fingerprint: requestFingerprint(request, typeof email === 'string' ? email : ''),
+      limit: 5,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!allowed) return NextResponse.json({ error: 'Too many setup attempts' }, { status: 429, headers: { 'Retry-After': '3600' } });
     const setupToken = process.env.SETUP_TOKEN;
     const receivedToken = typeof token === 'string' ? Buffer.from(token) : null;
     const expectedToken = setupToken ? Buffer.from(setupToken) : null;

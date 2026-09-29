@@ -18,16 +18,16 @@ export default function PoliciesPage() {
           <h2 className="text-lg font-semibold text-white">What Instagram does not allow us to do</h2>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li>There is no production “user followed you” webhook.</li>
-            <li>We cannot look up whether a random commenter currently follows the professional account.</li>
+            <li>After the user interacts in DM, the app checks Meta&apos;s current IGSID follow-relationship field before delivery.</li>
             <li>A comment may receive only one private reply. Later messages need the IGSID and a recent user action.</li>
             <li>Messaging is rate-limited. “Unlimited DMs” is not a realistic product claim.</li>
           </ul>
         </section>
         <section>
-          <h2 className="text-lg font-semibold text-white">Follow-gate honesty</h2>
+          <h2 className="text-lg font-semibold text-white">Follow-gate verification</h2>
           <p>
-            The follow gate is an honor system: we ask the person to follow, then they tap <strong>I Followed</strong> or reply DONE.
-            Clicking “Visit profile” is not treated as a follow. Some people will confirm without following.
+            The first DM asks the person to request access. If Meta reports that they do not currently follow the account, they receive
+            <strong> Follow Me</strong> and <strong>I&apos;ve followed</strong>. Every access attempt checks again, and a missing/failed check never unlocks the resource.
           </p>
         </section>
         <section>

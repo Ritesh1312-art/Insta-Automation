@@ -51,18 +51,18 @@ export async function reviewDirectUpiPayment(params: {
         data: planAssignmentData(planId),
       });
     } else {
-      // A rejected renewal must not cancel the user's current plan. Only repair
-      // the legacy PENDING_PAYMENT flag used by older deployments.
-      const owner = await tx.user.findUnique({ where: { id: existing.userId } });
-      if (owner?.subscriptionStatus === 'PENDING_PAYMENT') {
-        const currentPlan = getPlan(owner.plan);
-        const paidStillActive = currentPlan.priceInr > 0 && owner.planActivatedAt
-          && Date.now() - owner.planActivatedAt.getTime() < 30 * 24 * 60 * 60 * 1000;
-        await tx.user.update({
-          where: { id: existing.userId },
-          data: { subscriptionStatus: currentPlan.priceInr === 0 || paidStillActive ? 'ACTIVE' : 'EXPIRED' },
-        });
-      }
+      const currentUser = await tx.user.findUniqueOrThrow({
+        where: { id: existing.userId },
+        select: { plan: true, planActivatedAt: true },
+      });
+      const currentPlan = getPlan(currentUser.plan);
+      const paidTermActive = currentPlan.priceInr > 0
+        && currentUser.planActivatedAt !== null
+        && Date.now() - currentUser.planActivatedAt.getTime() < 30 * 24 * 60 * 60 * 1000;
+      await tx.user.update({
+        where: { id: existing.userId },
+        data: { subscriptionStatus: currentPlan.priceInr === 0 || paidTermActive ? 'ACTIVE' : 'EXPIRED' },
+      });
     }
 
     await tx.auditLog.create({

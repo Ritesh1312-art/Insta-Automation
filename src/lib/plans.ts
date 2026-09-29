@@ -127,3 +127,11 @@ export function isPaidPlan(planId: string | null | undefined): boolean {
   const plan = normalizePlanId(planId);
   return Boolean(plan && plan !== 'FREE');
 }
+
+export function formatPaiseAsInr(amountPaise: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: amountPaise % 100 === 0 ? 0 : 2,
+  }).format(amountPaise / 100);
+}

@@ -2,10 +2,10 @@ import Link from 'next/link';
 import { PLANS, PAID_PLANS } from '@/lib/plans';
 
 const steps = [
-  { title: 'Comment matches a keyword', body: 'A signed Meta comments webhook starts the run. One private reply is allowed per comment.' },
-  { title: 'Follow CTA is sent', body: 'The first DM asks the person to follow your public profile. Instagram does not send a follow webhook.' },
-  { title: 'They tap I Followed', body: 'Honor-system confirm (or reply DONE). We mark the contact claimed and send the unlock card.' },
-  { title: 'Resource is delivered', body: 'The final button sends your prompt, link, or file URL inside the 24-hour messaging window.' },
+  { title: 'Comment matches the trigger', body: 'A signed Meta comments webhook starts the run and sends a private welcome with an access button.' },
+  { title: 'They request access', body: 'Send me the Access performs a fresh follow-relationship check through Meta.' },
+  { title: 'Follow when needed', body: "Non-followers get Follow Me and I've followed. Every retry checks the current relationship again." },
+  { title: 'Resource is delivered', body: 'Verified followers receive your prompt, link, or text without an extra unlock step.' },
 ];
 
 export default function LandingPage() {
@@ -90,8 +90,8 @@ export default function LandingPage() {
         <div className="rounded-3xl border border-amber-700/40 bg-amber-950/20 p-8">
           <h2 className="text-2xl font-bold text-amber-200">Account-ban risk is real</h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-amber-100/80">
-            Meta can restrict professional accounts that send unsolicited DMs, repeat the same template too often, or try to detect follows in ways the API does not support.
-            This product uses official private replies and honor-system follow confirms. It cannot guarantee deliverability or account safety. Read the full policy notes before you scale.
+            Meta can restrict professional accounts that send unsolicited DMs or repeat the same template too often.
+            This product uses official private replies and Meta&apos;s current follow-relationship field; when that check is unavailable, access stays locked. It cannot guarantee deliverability or account safety.
           </p>
           <Link href="/policies" className="mt-4 inline-block text-sm font-semibold text-amber-200 underline">
             Read Instagram policy notes →

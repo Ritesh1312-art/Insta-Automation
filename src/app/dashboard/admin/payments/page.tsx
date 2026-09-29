@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CreditCard, CheckCircle2, XCircle } from 'lucide-react';
+import { formatPaiseAsInr } from '@/lib/plans';
 
 type Payment = {
   id: string;
@@ -95,7 +96,7 @@ export default function AdminPaymentsPage() {
                     <div className="text-slate-500">{pay.payerName} · {pay.payerUpiId}</div>
                   </td>
                   <td className="p-4 text-purple-300">{pay.planType}</td>
-                  <td className="p-4 font-bold text-emerald-400">₹{pay.amount}</td>
+                  <td className="p-4 font-bold text-emerald-400">{formatPaiseAsInr(pay.amount)}</td>
                   <td className="p-4 font-extrabold tracking-wider text-purple-300">{pay.utrNumber}</td>
                   <td className="p-4">{pay.status}</td>
                   <td className="p-4 text-slate-400">{new Date(pay.createdAt).toLocaleString('en-IN')}</td>

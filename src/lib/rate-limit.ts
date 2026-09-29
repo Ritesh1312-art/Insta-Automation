@@ -1,71 +1,41 @@
-import { createHmac } from 'crypto';
-import type { NextRequest } from 'next/server';
-import { Prisma } from '@/generated/prisma/client';
+import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 
-export type RateLimitResult = { allowed: true; remaining: number } | { allowed: false; retryAfterSeconds: number };
+function digest(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
 
-export function requestIp(request: Pick<NextRequest, 'headers'>): string {
-  const cloudflare = request.headers.get('cf-connecting-ip')?.trim();
-  if (cloudflare) return cloudflare;
+export function requestFingerprint(request: Request, discriminator = '') {
   const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return forwarded || 'unknown';
+  const address = forwarded || request.headers.get('cf-connecting-ip') || request.headers.get('x-real-ip') || 'unknown';
+  const agent = request.headers.get('user-agent')?.slice(0, 160) || 'unknown';
+  return digest(`${address}|${agent}|${discriminator.toLowerCase().trim()}`);
 }
 
-export function rateLimitKey(scope: string, identifier: string): string {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret || secret.length < 32) throw new Error('AUTH_SECRET must be configured with at least 32 characters');
-  const digest = createHmac('sha256', secret).update(`${scope}:${identifier.toLowerCase()}`).digest('hex');
-  return `${scope}:${digest}`;
-}
-
+/** Database-backed limiter that works across serverless/Worker instances. */
 export async function consumeRateLimit(params: {
-  scope: string;
-  identifier: string;
+  action: string;
+  fingerprint: string;
   limit: number;
   windowMs: number;
-}): Promise<RateLimitResult> {
-  const key = rateLimitKey(params.scope, params.identifier);
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const now = new Date();
-    try {
-      return await prisma.$transaction(async (tx) => {
-        const current = await tx.rateLimitBucket.findUnique({ where: { key } });
-        if (!current || current.expiresAt <= now) {
-          await tx.rateLimitBucket.upsert({
-            where: { key },
-            create: { key, count: 1, windowStart: now, expiresAt: new Date(now.getTime() + params.windowMs) },
-            update: { count: 1, windowStart: now, expiresAt: new Date(now.getTime() + params.windowMs) },
-          });
-          return { allowed: true, remaining: Math.max(0, params.limit - 1) } as const;
-        }
-
-        if (current.count >= params.limit) {
-          return {
-            allowed: false,
-            retryAfterSeconds: Math.max(1, Math.ceil((current.expiresAt.getTime() - now.getTime()) / 1000)),
-          } as const;
-        }
-
-        const updated = await tx.rateLimitBucket.update({
-          where: { key },
-          data: { count: { increment: 1 } },
-        });
-        return { allowed: true, remaining: Math.max(0, params.limit - updated.count) } as const;
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034' && attempt < 2) continue;
-      throw error;
-    }
-  }
-
-  return { allowed: false, retryAfterSeconds: Math.ceil(params.windowMs / 1000) };
-}
-
-export function rateLimitResponse(result: Extract<RateLimitResult, { allowed: false }>) {
-  return {
-    status: 429,
-    headers: { 'Retry-After': String(result.retryAfterSeconds) },
-  };
+}) {
+  const since = new Date(Date.now() - params.windowMs);
+  return prisma.$transaction(async (tx) => {
+    // Serialize a given action/fingerprint window so parallel requests cannot all
+    // pass the count before any of them records its attempt.
+    const lockKey = `${params.action}:${params.fingerprint}`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+    const used = await tx.auditLog.count({
+      where: {
+        action: params.action,
+        ipAddress: params.fingerprint,
+        createdAt: { gte: since },
+      },
+    });
+    if (used >= params.limit) return false;
+    await tx.auditLog.create({
+      data: { action: params.action, ipAddress: params.fingerprint },
+    });
+    return true;
+  });
 }

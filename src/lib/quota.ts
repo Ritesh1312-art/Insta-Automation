@@ -79,18 +79,39 @@ export async function assertDmQuota(userId: string): Promise<{ ok: true } | { ok
   return { ok: true };
 }
 
-export type DmReservation = { ok: true; counted: boolean } | { ok: false; message: string };
+export type DmReservation = { ok: true; charged: boolean } | { ok: false; message: string };
 
-/** Atomically reserves one DM before calling Meta, preventing concurrent overages. */
+/** Atomically reserves one DM before calling Meta so concurrent webhooks cannot exceed a plan cap. */
 export async function reserveDmQuota(userId: string): Promise<DmReservation> {
   const user = await resetQuotaIfNeeded(userId);
   if (!user) return { ok: false, message: 'Workspace owner not found' };
-  if (user.role === 'ADMIN') return { ok: true, counted: false };
+  if (user.role === 'ADMIN') return { ok: true, charged: false };
 
   const plan = getPlan(user.plan);
-  const quota = user.monthlyDmQuota || plan.dmQuota;
+  const quota = user.monthlyDmQuota > 0 ? user.monthlyDmQuota : plan.dmQuota;
   const reserved = await prisma.user.updateMany({
     where: { id: userId, dmsUsedThisMonth: { lt: quota } },
+    data: { dmsUsedThisMonth: { increment: 1 } },
+  });
+  if (reserved.count !== 1) {
+    return { ok: false, message: `${plan.name} plan quota reached (${quota} DMs / 30 days). Upgrade or wait for reset.` };
+  }
+  return { ok: true, charged: true };
+}
+
+/** Releases a reservation when Meta definitively rejects the request. */
+export async function releaseDmQuota(userId: string, reservation: DmReservation) {
+  if (!reservation.ok || !reservation.charged) return;
+  await prisma.user.updateMany({
+    where: { id: userId, dmsUsedThisMonth: { gt: 0 } },
+    data: { dmsUsedThisMonth: { decrement: 1 } },
+  });
+}
+
+/** Kept for administrative/backfill callers; normal sends must use reserveDmQuota. */
+export async function incrementDmUsage(userId: string) {
+  await prisma.user.update({
+    where: { id: userId },
     data: { dmsUsedThisMonth: { increment: 1 } },
   });
   if (reserved.count !== 1) {

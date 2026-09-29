@@ -10,35 +10,43 @@ export default function PricingPage() {
   const [payeeName, setPayeeName] = useState('InstaDM Auto');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const refresh = () => {
-    fetch('/api/auth/me')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.user) {
-          setUserStatus({
-            plan: data.user.plan || 'FREE',
-            dmsUsed: data.user.dmsUsedThisMonth || 0,
-            quota: data.user.monthlyDmQuota || 30,
-            status: data.user.subscriptionStatus || 'INACTIVE',
-            role: data.user.role || 'USER',
-          });
-        }
-      })
-      .catch(() => null);
+  const refresh = async () => {
+    setError('');
+    try {
+      const [accountResponse, billingResponse] = await Promise.all([
+        fetch('/api/auth/me'),
+        fetch('/api/billing/public'),
+      ]);
+      const [accountData, billingData] = await Promise.all([
+        accountResponse.json(),
+        billingResponse.json(),
+      ]);
+      if (!accountResponse.ok) throw new Error(accountData.error || 'Plan status load nahi ho paaya');
+      if (!billingResponse.ok) throw new Error(billingData.error || 'Payment settings load nahi ho paayi');
+      if (!accountData.user) throw new Error('Account details available nahi hain');
 
-    fetch('/api/admin/upi-settings')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.adminUpiId) setUpiId(data.adminUpiId);
-        if (data.payeeName) setPayeeName(data.payeeName);
-        if (data.adminQrCodeUrl) setQrCodeUrl(data.adminQrCodeUrl);
-      })
-      .catch(() => null);
+      setUserStatus({
+        plan: accountData.user.plan || 'FREE',
+        dmsUsed: accountData.user.dmsUsedThisMonth || 0,
+        quota: accountData.user.monthlyDmQuota || 30,
+        status: accountData.user.subscriptionStatus || 'INACTIVE',
+        role: accountData.user.role || 'USER',
+      });
+      setUpiId(billingData.upiId || '');
+      setPayeeName(billingData.payeeName || 'InstaDM Auto');
+      setQrCodeUrl(billingData.qrCodeUrl || '');
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Plan details load nahi ho paayi');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, []);
 
   const plans = Object.values(PLANS) as Plan[];
@@ -53,9 +61,10 @@ export default function PricingPage() {
         <p className="mx-auto mt-2 max-w-xl text-sm text-slate-400">
           Plans are hard caps, not “unlimited”. After you pay, an admin matches the UTR in the UPI app before the quota is applied.
         </p>
+        {error && <p role="alert" className="mx-auto mt-5 max-w-xl rounded-xl border border-rose-500/30 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
         <div className="mt-6 inline-flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 px-5 py-3">
           <div className="text-left">
-            <p className="text-xs text-slate-400">Current plan · {userStatus.status}</p>
+            <p className="text-xs text-slate-400">{loading ? 'Plan status load ho raha hai…' : `Current plan · ${userStatus.status}`}</p>
             <p className="text-sm font-bold text-purple-400">
               {userStatus.plan} ({userStatus.dmsUsed} / {userStatus.quota} DMs)
             </p>
@@ -90,7 +99,7 @@ export default function PricingPage() {
                 </ul>
               </div>
               <button
-                disabled={current || plan.id === 'FREE'}
+                disabled={loading || current || plan.id === 'FREE'}
                 onClick={() => setSelectedPlan(plan)}
                 className="mt-6 w-full rounded-xl bg-purple-600 py-3 text-sm font-bold text-white disabled:cursor-default disabled:bg-slate-800 disabled:text-slate-400"
               >
@@ -115,7 +124,7 @@ export default function PricingPage() {
               payeeName={payeeName}
               qrCodeUrl={qrCodeUrl}
               onDone={() => {
-                refresh();
+                void refresh();
               }}
             />
           </div>

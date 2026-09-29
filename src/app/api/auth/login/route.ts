@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { signToken } from '@/lib/auth';
-import { consumeRateLimit, rateLimitResponse, requestIp } from '@/lib/rate-limit';
+import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,9 +24,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
-    const valid = user ? await bcrypt.compare(password, user.passwordHash) : false;
-    if (!user || !valid) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    const normalizedEmail = email.trim().toLowerCase();
+    const allowed = await consumeRateLimit({
+      action: 'RATE_LIMIT_LOGIN',
+      fingerprint: requestFingerprint(req, normalizedEmail),
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many sign-in attempts. Try again in 15 minutes.' },
+        { status: 429, headers: { 'Retry-After': '900' } },
+      );
+    }
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    if (!user) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    }
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    }
 
     const token = await signToken({
       userId: user.id,
@@ -44,10 +64,7 @@ export async function POST(req: NextRequest) {
       path: '/',
     });
     return response;
-  } catch (error) {
-    const message = error instanceof Error && error.message.startsWith('AUTH_SECRET')
-      ? error.message
-      : 'Login failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Unable to sign in right now' }, { status: 500 });
   }
 }

@@ -1,7 +1,9 @@
 export function publicUpiConfig() {
+  const configuredPayeeName = (process.env.UPI_PAYEE_NAME || '').trim();
   return {
     upiId: (process.env.UPI_ID || '').trim(),
-    payeeName: (process.env.UPI_PAYEE_NAME || 'InstaDM Auto').trim() || 'InstaDM Auto',
+    payeeName: configuredPayeeName || 'InstaDM Auto',
+    configuredPayeeName,
     note: (process.env.UPI_NOTE || 'InstaDM plan payment').trim(),
   };
 }

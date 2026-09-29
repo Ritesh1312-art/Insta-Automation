@@ -1,7 +1,10 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
-import { prisma } from '@/lib/prisma';
+
+const ISSUER = 'instadm-auto';
+const SESSION_AUDIENCE = 'instadm-session';
+const OAUTH_AUDIENCE = 'meta-oauth';
 
 export interface JWTPayload {
   userId: string;
@@ -10,38 +13,43 @@ export interface JWTPayload {
   sessionVersion: number;
 }
 
-function authSecret() {
-  const value = process.env.AUTH_SECRET;
-  if (!value || value.length < 32) {
+function authKey() {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret || secret.length < 32) {
     throw new Error('AUTH_SECRET must be configured with at least 32 characters');
   }
-  return new TextEncoder().encode(value);
+  return new TextEncoder().encode(secret);
 }
 
-export async function signToken(payload: Omit<JWTPayload, 'sessionVersion'> & { sessionVersion?: number }): Promise<string> {
-  return new SignJWT({ ...payload, sessionVersion: payload.sessionVersion ?? 0, purpose: 'session' })
+function isSessionPayload(payload: Record<string, unknown>): payload is Record<string, unknown> & JWTPayload {
+  return typeof payload.userId === 'string'
+    && payload.userId.length > 0
+    && typeof payload.email === 'string'
+    && payload.email.length > 0
+    && typeof payload.role === 'string'
+    && payload.role.length > 0;
+}
+
+export async function signToken(payload: JWTPayload): Promise<string> {
+  return new SignJWT({ ...payload, purpose: 'session' })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuer(ISSUER)
+    .setAudience(SESSION_AUDIENCE)
     .setIssuedAt()
+    .setJti(randomUUID())
     .setExpirationTime('7d')
-    .sign(authSecret());
+    .sign(authKey());
 }
 
 export async function verifyToken(token: string): Promise<JWTPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, authSecret(), { algorithms: ['HS256'] });
-    if (
-      payload.purpose !== 'session' ||
-      typeof payload.userId !== 'string' ||
-      typeof payload.email !== 'string' ||
-      typeof payload.role !== 'string'
-    ) return null;
-
-    return {
-      userId: payload.userId,
-      email: payload.email,
-      role: payload.role,
-      sessionVersion: typeof payload.sessionVersion === 'number' ? payload.sessionVersion : 0,
-    };
+    const { payload } = await jwtVerify(token, authKey(), {
+      algorithms: ['HS256'],
+      issuer: ISSUER,
+      audience: SESSION_AUDIENCE,
+    });
+    if (payload.purpose !== 'session' || !isSessionPayload(payload)) return null;
+    return { userId: payload.userId, email: payload.email, role: payload.role };
   } catch {
     return null;
   }
@@ -75,15 +83,23 @@ export async function requireSessionUser(): Promise<JWTPayload> {
 export async function createOAuthState(userId: string): Promise<string> {
   return new SignJWT({ userId, nonce: randomUUID(), purpose: 'meta-oauth' })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuer(ISSUER)
+    .setAudience(OAUTH_AUDIENCE)
     .setIssuedAt()
     .setExpirationTime('10m')
-    .sign(authSecret());
+    .sign(authKey());
 }
 
 export async function verifyOAuthState(state: string): Promise<string | null> {
   try {
-    const { payload } = await jwtVerify(state, authSecret(), { algorithms: ['HS256'] });
-    return payload.purpose === 'meta-oauth' && typeof payload.userId === 'string' ? payload.userId : null;
+    const { payload } = await jwtVerify(state, authKey(), {
+      algorithms: ['HS256'],
+      issuer: ISSUER,
+      audience: OAUTH_AUDIENCE,
+    });
+    return payload.purpose === 'meta-oauth' && typeof payload.userId === 'string'
+      ? payload.userId
+      : null;
   } catch {
     return null;
   }

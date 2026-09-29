@@ -15,7 +15,7 @@ Cloudflare Workers cannot run a local Postgres. Prisma talks to that remote URL.
 3. Build command:
 
 ```bash
-npx prisma generate && npx prisma db push && npx @opennextjs/cloudflare build
+npm ci && npm run env:check && npm run db:deploy && npm run cf:build
 ```
 
 4. Deploy command (if asked): `npx wrangler deploy`
@@ -24,11 +24,13 @@ npx prisma generate && npx prisma db push && npx @opennextjs/cloudflare build
 Or from your laptop after `npx wrangler login`:
 
 ```bash
-npx prisma generate
-npx prisma db push
-npx @opennextjs/cloudflare build
-npx wrangler deploy
+npm ci
+npm run env:check
+npm run db:deploy
+npm run cf:deploy
 ```
+
+Never use `prisma db push` in production; `db:deploy` applies the checked-in migration history.
 
 ## 3. Variables — add TWICE
 
@@ -84,4 +86,4 @@ Open `/setup` once with `SETUP_TOKEN`, create the admin, then rotate/delete `SET
 
 ## Prisma note
 
-If the Worker fails to load the Prisma engine, switch the database host to **Neon pooled** and keep `nodejs_compat` (already in `wrangler.jsonc`). Do not use Cloudflare D1 unless you migrate off Prisma Postgres.
+The project uses Prisma 6's Rust-free client with `@prisma/adapter-pg`, plus `pg-cloudflare` for the Worker bundle. Use a Postgres provider that permits Cloudflare Worker TCP connections (a pooled Neon/Supabase URL is recommended), keep `nodejs_compat`, and retain the `pg-cloudflare` output-file tracing rule in `next.config.js`. Do not use Cloudflare D1 unless the database layer is intentionally migrated away from Postgres.

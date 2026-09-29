@@ -46,6 +46,11 @@ export default function UpiPayForm({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!upiId) {
+      setError('UPI payment destination is not configured. Payment submit nahi ki ja sakti.');
+      return;
+    }
+    if (message) return;
     setBusy(true);
     setError('');
     setMessage('');
@@ -148,10 +153,10 @@ export default function UpiPayForm({
           className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 font-mono text-sm tracking-wide text-white"
         />
         <button
-          disabled={busy}
-          className="w-full rounded-xl bg-fuchsia-600 py-3 text-sm font-bold text-white disabled:opacity-50"
+          disabled={busy || !upiId || Boolean(message)}
+          className="w-full rounded-xl bg-fuchsia-600 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy ? 'Submitting…' : 'Submit for verification'}
+          {busy ? 'Submitting…' : message ? 'Submitted for review' : !upiId ? 'UPI payment unavailable' : 'Submit for verification'}
         </button>
       </form>
       {error && <p className="text-sm text-rose-400">{error}</p>}

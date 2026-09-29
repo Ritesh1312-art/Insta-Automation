@@ -100,7 +100,12 @@ export default function SettingsPage() {
       if (!response.ok) throw new Error(data.error || 'Re-subscribe failed');
       const results = data.subscriptionResults || [];
       const succeeded = results.filter((item: { success: boolean }) => item.success).length;
-      setMetaMessage(`✅ ${succeeded}/${results.length} connection(s) subscribed to: ${(data.subscribedFields || []).join(', ')}`);
+      const subscribed = data.subscribedFields || {};
+      const fieldSummary = [
+        ...(subscribed.page || []).map((field: string) => `Page:${field}`),
+        ...(subscribed.instagram || []).map((field: string) => `Instagram:${field}`),
+      ].join(', ');
+      setMetaMessage(`✅ ${succeeded}/${results.length} connection(s) fully subscribed${fieldSummary ? ` — ${fieldSummary}` : ''}`);
     } catch (error) {
       setMetaMessage(`❌ ${error instanceof Error ? error.message : 'Re-subscribe failed'}`);
     } finally { setMetaBusy(false); }

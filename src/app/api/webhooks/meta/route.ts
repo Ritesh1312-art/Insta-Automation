@@ -29,23 +29,24 @@ export async function POST(req: NextRequest) {
 
     const parsedBody: unknown = JSON.parse(rawBody);
     const commentEvents = WebhookService.parseCommentEvents(parsedBody);
-    const messagingEvents = WebhookService.parseMessagingEvents(parsedBody);
-    const [storedComments, storedMessages] = await Promise.all([
-      Promise.all(commentEvents.map((event) => AutomationEngine.ingestCommentEvent(event))),
-      Promise.all(messagingEvents.map((event) => AutomationEngine.ingestMessagingEvent(event))),
-    ]);
-    const stored = [...storedComments, ...storedMessages];
-
-    // Next's after() is supported by both Node and Cloudflare OpenNext. Every
-    // item is persisted first, so the retry job can recover interrupted work.
+    const storedComments = await Promise.all(commentEvents.map((event) => AutomationEngine.ingestCommentEvent(event)));
     after(async () => {
-      await Promise.allSettled(stored.map((event) => AutomationEngine.processWebhookEvent(event.id)));
+      await Promise.allSettled(storedComments.map((event) => AutomationEngine.processWebhookEvent(event.id)));
     });
+
+    // Button/text follow-gate actions are processed before acknowledging the
+    // webhook. Unlike comments they are not reconstructable from a scheduled
+    // retry queue, so background-only execution could lose a button click.
+    const messagingEvents = WebhookService.parseMessagingEvents(parsedBody);
+    const messagingResults = await Promise.all(
+      messagingEvents.map((event) => AutomationEngine.processMessagingPostback(event)),
+    );
 
     return NextResponse.json({
       status: 'RECEIVED',
       commentEventCount: storedComments.length,
-      messagingEventCount: storedMessages.length,
+      messagingEventCount: messagingEvents.length,
+      messagingProcessedCount: messagingResults.filter((result) => result.status === 'PROCESSED').length,
     });
   } catch (error) {
     console.error('Meta webhook receiver error:', error);

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
+import { formatPaiseAsInr } from '@/lib/plans';
 
 type DirectUpiPaymentRecord = {
   id: string;
@@ -249,7 +250,7 @@ export function paymentTelegramText(payment: Pick<DirectUpiPaymentRecord, 'id' |
     `Customer: ${payment.userEmail}`,
     `Payer: ${payment.payerName} (${payment.payerUpiId})`,
     `Plan: ${payment.planType}`,
-    `Amount: ₹${payment.amount}`,
+    `Amount: ${formatPaiseAsInr(payment.amount)}`,
     `UTR: ${payment.utrNumber}`,
     `Submitted: ${payment.createdAt.toISOString()}`,
     `Payment ID: ${payment.id}`,

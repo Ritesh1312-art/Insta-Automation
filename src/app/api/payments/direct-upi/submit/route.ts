@@ -7,7 +7,7 @@ import { isValidUpiId, isValidUtr } from '@/lib/upi';
 import { sendPaymentSubmittedEmail } from '@/lib/mailer';
 import { notifyTelegramPaymentSubmitted } from '@/lib/telegram';
 
-class PaymentSubmitError extends Error {
+class PaymentSubmissionError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
   }
@@ -30,14 +30,22 @@ export async function POST(req: Request) {
     }
 
     const plan = getPlan(planType);
+    const amountPaise = plan.priceInr * 100;
+    const user = await prisma.user.findUnique({ where: { id: session.userId } });
+    if (!user) return NextResponse.json({ error: 'User account not found' }, { status: 404 });
+
     const payment = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({ where: { id: session.userId } });
-      if (!user) throw new PaymentSubmitError('User account not found', 404);
+      // Serialize submissions for this user. This prevents two simultaneous
+      // requests with different UTRs from creating multiple pending reviews.
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;
 
       const duplicate = await tx.directUpiPayment.findUnique({ where: { utrNumber } });
-      if (duplicate) throw new PaymentSubmitError('This UTR is already submitted. Wait for review or use a new payment.', 409);
-      const pending = await tx.directUpiPayment.findFirst({ where: { userId: user.id, status: 'PENDING_REVIEW' } });
-      if (pending) throw new PaymentSubmitError('You already have a payment waiting for review. Do not pay again.', 409);
+      if (duplicate) throw new PaymentSubmissionError('This UTR is already submitted. Wait for review or use a new payment.', 409);
+
+      const pending = await tx.directUpiPayment.findFirst({
+        where: { userId: user.id, status: 'PENDING_REVIEW' },
+      });
+      if (pending) throw new PaymentSubmissionError('You already have a payment waiting for review. Do not pay again.', 409);
 
       const created = await tx.directUpiPayment.create({
         data: {
@@ -46,20 +54,24 @@ export async function POST(req: Request) {
           payerName,
           payerUpiId,
           planType: plan.id,
-          amount: plan.priceInr,
+          amount: amountPaise,
           utrNumber,
           status: 'PENDING_REVIEW',
         },
+      });
+      await tx.user.update({
+        where: { id: user.id },
+        data: { subscriptionStatus: 'PENDING_PAYMENT' },
       });
       await tx.auditLog.create({
         data: {
           userId: user.id,
           action: 'UPI_PAYMENT_SUBMITTED',
-          details: { paymentId: created.id, planType: plan.id, amount: plan.priceInr, utrNumber },
+          details: { paymentId: created.id, planType: plan.id, amountPaise, utrNumber },
         },
       });
       return created;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: 'Serializable' });
 
     // Notifications are best-effort and never change payment state.
     await Promise.all([
@@ -77,12 +89,12 @@ export async function POST(req: Request) {
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Sign in to submit a payment' }, { status: 401 });
     }
-    if (error instanceof PaymentSubmitError) return NextResponse.json({ error: error.message }, { status: error.status });
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') return NextResponse.json({ error: 'This UTR is already submitted.' }, { status: 409 });
-      if (error.code === 'P2034') return NextResponse.json({ error: 'Payment changed concurrently. Please try again.' }, { status: 409 });
+    if (error instanceof PaymentSubmissionError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    console.error('Direct UPI submission failed:', error);
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return NextResponse.json({ error: 'This UTR is already submitted.' }, { status: 409 });
+    }
     return NextResponse.json({ error: 'Failed to submit Direct UPI payment' }, { status: 500 });
   }
 }

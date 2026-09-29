@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { sendPasswordResetOtpEmail } from '@/lib/mailer';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
-import { consumeRateLimit, rateLimitResponse, requestIp } from '@/lib/rate-limit';
+import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const GENERIC_REQUEST_MESSAGE = 'If that account exists, a verification code has been sent to its registered email address.';
@@ -19,6 +19,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Enter a valid email address' }, { status: 400 });
     }
 
+    const requesting = action === 'REQUEST_OTP';
+    const allowed = await consumeRateLimit({
+      action: requesting ? 'RATE_LIMIT_PASSWORD_OTP' : 'RATE_LIMIT_PASSWORD_VERIFY',
+      fingerprint: requestFingerprint(req, email),
+      limit: requesting ? 3 : 10,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many password reset attempts. Try again in 15 minutes.' },
+        { status: 429, headers: { 'Retry-After': '900' } },
+      );
+    }
+
     if (action === 'REQUEST_OTP') {
       const rate = await consumeRateLimit({
         scope: 'password-reset-request',
@@ -31,7 +45,8 @@ export async function POST(req: NextRequest) {
       }
 
       const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE });
+      const genericMessage = 'If an account exists, a verification code has been sent to its registered email.';
+      if (!user) return NextResponse.json({ success: true, message: genericMessage });
 
       const generatedOtp = randomInt(100000, 1_000_000).toString();
       const otpHash = await bcrypt.hash(generatedOtp, 10);
@@ -49,8 +64,9 @@ export async function POST(req: NextRequest) {
         }),
       ]);
 
-      await sendPasswordResetOtpEmail(email, generatedOtp);
-      return NextResponse.json({ success: true, message: GENERIC_REQUEST_MESSAGE });
+      const mail = await sendPasswordResetOtpEmail(email, generatedOtp);
+      if (!mail.sent) console.error('Password reset email could not be sent:', mail.reason);
+      return NextResponse.json({ success: true, message: genericMessage });
     }
 
     if (action === 'VERIFY_AND_RESET') {

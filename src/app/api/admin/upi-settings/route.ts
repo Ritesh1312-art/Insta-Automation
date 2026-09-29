@@ -15,10 +15,10 @@ export async function GET() {
       autoQr: Boolean(checkout.upiId) && !checkout.customQrUrl,
       source: checkout.source,
     });
-  } catch (error: unknown) {
+  } catch (error) {
     if (isAuthError(error, 'UNAUTHORIZED')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     if (isAuthError(error, 'FORBIDDEN')) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to fetch Admin UPI settings' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to fetch admin UPI settings' }, { status: 500 });
   }
 }
 
@@ -27,10 +27,13 @@ export async function POST(req: Request) {
     await requireAdmin();
     const { adminUpiId, adminQrCodeUrl } = await req.json();
     const upiId = String(adminUpiId || '').trim();
-    const qrCodeUrl = String(adminQrCodeUrl || '').trim();
+    const qrCodeUrl = typeof adminQrCodeUrl === 'string' ? adminQrCodeUrl.trim() : '';
 
     if (!upiId || !isValidUpiId(upiId)) {
       return NextResponse.json({ error: 'A valid Admin UPI ID is required (example: name@okaxis)' }, { status: 400 });
+    }
+    if (qrCodeUrl && !/^https:\/\//i.test(qrCodeUrl)) {
+      return NextResponse.json({ error: 'Custom QR URL must use HTTPS' }, { status: 400 });
     }
 
     if (qrCodeUrl && !/^https:\/\//i.test(qrCodeUrl)) {
@@ -46,9 +49,9 @@ export async function POST(req: Request) {
       success: true,
       message: 'UPI ID saved. Checkout QR is generated automatically from this ID and the plan amount.',
     });
-  } catch (error: any) {
+  } catch (error) {
     if (isAuthError(error, 'UNAUTHORIZED')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     if (isAuthError(error, 'FORBIDDEN')) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-    return NextResponse.json({ error: error.message || 'Failed to save Admin UPI settings' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to save admin UPI settings' }, { status: 500 });
   }
 }

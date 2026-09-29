@@ -24,23 +24,24 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      hasFollowed: contact?.followedAt != null,
+      previouslyVerifiedFollow: contact?.followedAt != null,
       promptSent: contact?.promptSentAt != null,
-      followedAt: contact?.followedAt,
+      lastVerifiedFollowAt: contact?.followedAt,
       username: contact?.username,
       followGateStatus: contact?.followGateStatus || 'NEW',
+      note: 'Historical contact data is not proof of the current follow relationship.',
     });
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to load contact status' }, { status: 500 });
   }
 }
 
 export async function POST() {
   return NextResponse.json(
-    { error: 'Follow status can only be claimed by the Instagram user via the I Followed button or DONE reply.' },
+    { error: 'Follow status cannot be set manually. It is checked live through Meta when the Instagram user requests access.' },
     { status: 405 }
   );
 }

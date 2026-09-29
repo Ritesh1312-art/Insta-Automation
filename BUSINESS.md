@@ -2,9 +2,9 @@
 
 ## Is the follow-gate possible?
 
-**Partially, and only as an honor system.**
+**Yes, with a live relationship check at the moment access is requested.**
 
-Instagram / Meta Graph API does **not** send a webhook when someone follows a professional account. There is also no supported endpoint that answers “does IGSID X currently follow me?” for comment-to-DM flows.
+Instagram / Meta Graph API does **not** send a webhook when someone follows a professional account. For an IGSID that has interacted with the business, the profile lookup can return `is_user_follow_business`, so this app queries it on every access attempt and fails closed if it is missing or the request fails.
 
 What *is* supported:
 
@@ -13,17 +13,17 @@ What *is* supported:
 | Comment → first DM | `comments` webhook + **one** private reply per comment (`recipient.comment_id`) |
 | Buttons | Generic template `web_url` + `postback` (not always available; text fallback is required) |
 | Later DMs | Use the commenter’s IGSID inside the 24-hour messaging window after they tap/reply |
-| Confirm follow | User taps **I Followed** or replies `DONE`. We store `followGateStatus=CLAIMED`. This is **not** proof they followed. |
-| Unlock + resource | Second DM (unlock card) then third DM / final `web_url` for the resource |
+| Request access | `Send me the Access` triggers a fresh profile relationship lookup. |
+| Follow retry | `Follow Me` opens the creator profile; `I've followed` performs the lookup again. |
+| Resource | A verified current follower receives the configured prompt/resource directly and at most once per automation. |
 
 What we **do not** do:
 
-- Treat “Visit profile” as a follow
+- Treat opening the creator profile as a follow
+- Treat the button label, `DONE`, or an old database timestamp as proof
 - Scrape the followers list
 - Call unofficial Instagram mobile APIs
-- Auto-unlock because a profile URL was opened
-
-Some people will tap I Followed without following. That is the tradeoff of staying inside official APIs.
+- Deliver when Meta's relationship check is unavailable
 
 ## Payment safety
 

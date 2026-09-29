@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
 import { isAuthError, requireAdmin } from '@/lib/require-admin';
-import { META_PAGE_WEBHOOK_FIELDS } from '@/services/meta/MetaAuthService';
+import { MetaAuthService, META_INSTAGRAM_WEBHOOK_FIELDS, META_PAGE_WEBHOOK_FIELDS } from '@/services/meta/MetaAuthService';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,20 +87,35 @@ export async function POST() {
       }
       try {
         const pageAccessToken = decryptToken(conn.accessTokenEncrypted);
-        const subResponse = await fetch(
-          `https://graph.facebook.com/${graphApiVersion}/${conn.facebookPageId}/subscribed_apps?subscribed_fields=${META_PAGE_WEBHOOK_FIELDS.join(',')}`,
-          { method: 'POST', headers: { Authorization: `Bearer ${pageAccessToken}` } }
-        );
-        const subData = await subResponse.json();
-        subscriptionResults.push({ instagramUsername: conn.instagramUsername, success: subResponse.ok, response: subData });
-      } catch (err: any) {
-        subscriptionResults.push({ instagramUsername: conn.instagramUsername, success: false, error: err.message });
+        const attempts = await Promise.allSettled([
+          MetaAuthService.subscribeObject(conn.facebookPageId, META_PAGE_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),
+          MetaAuthService.subscribeObject(conn.instagramAccountId, META_INSTAGRAM_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),
+        ]);
+        const errors = attempts
+          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+          .map((result) => result.reason instanceof Error ? result.reason.message : 'Unknown error');
+        subscriptionResults.push({
+          instagramUsername: conn.instagramUsername,
+          success: errors.length === 0,
+          pageSubscribed: attempts[0].status === 'fulfilled',
+          instagramSubscribed: attempts[1].status === 'fulfilled',
+          errors,
+        });
+      } catch (error) {
+        subscriptionResults.push({
+          instagramUsername: conn.instagramUsername,
+          success: false,
+          error: error instanceof Error ? error.message : 'Subscription failed',
+        });
       }
     }
 
     return NextResponse.json({
       success: true,
-      subscribedFields: [...META_PAGE_WEBHOOK_FIELDS],
+      subscribedFields: {
+        page: [...META_PAGE_WEBHOOK_FIELDS],
+        instagram: [...META_INSTAGRAM_WEBHOOK_FIELDS],
+      },
       subscriptionResults,
     });
   } catch (error: any) {

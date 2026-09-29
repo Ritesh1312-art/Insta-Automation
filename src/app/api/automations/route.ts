@@ -52,11 +52,11 @@ export async function POST(req: NextRequest) {
     const user = await requireSessionUser();
     const body = await req.json();
     const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const keywords = Array.isArray(body.keywords)
-      ? body.keywords
-        .filter((keyword: unknown): keyword is string => typeof keyword === 'string' && Boolean(keyword.trim()))
-        .map((keyword: string) => keyword.trim().slice(0, 100))
-        .slice(0, 25)
+    const keywords: string[] = Array.isArray(body.keywords)
+      ? [...new Set<string>(body.keywords
+          .filter((keyword: unknown): keyword is string => typeof keyword === 'string' && Boolean(keyword.trim()))
+          .map((keyword: string) => keyword.trim().slice(0, 60)))]
+          .slice(0, 20)
       : [];
     const status = typeof body.status === 'string' ? body.status : 'ACTIVE';
     const triggerType = typeof body.triggerType === 'string' ? body.triggerType : 'KEYWORD';
@@ -74,51 +74,80 @@ export async function POST(req: NextRequest) {
 
     const connection = await prisma.metaConnection.findFirst({
       where: { userId: user.userId, connectionStatus: 'CONNECTED' },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
     });
     if (!connection) return NextResponse.json({ error: 'Connect an Instagram account first' }, { status: 400 });
 
-    let mediaId: string | null = body.mediaId || null;
+    const automationId = typeof body.automationId === 'string' && body.automationId ? body.automationId : null;
+    const existingAutomation = automationId
+      ? await prisma.automation.findFirst({
+          where: { id: automationId, userId: user.userId, instagramAccountId: connection.instagramAccountId },
+        })
+      : null;
+    if (automationId && !existingAutomation) {
+      return NextResponse.json({ error: 'Automation not found' }, { status: 404 });
+    }
+
+    const mediaId: string | null = typeof body.mediaId === 'string' && body.mediaId ? body.mediaId : null;
     if (mediaId) {
       const media = await prisma.media.findFirst({ where: { id: mediaId, instagramAccountId: connection.instagramAccountId } });
       if (!media) return NextResponse.json({ error: 'Selected media does not belong to your connected account' }, { status: 400 });
     }
     if (body.customPostUrl) return NextResponse.json({ error: 'Select a synced Instagram post; custom URLs are not supported' }, { status: 400 });
 
-    const resourceId = body.resourceId || null;
+    const resourceId = typeof body.resourceId === 'string' && body.resourceId ? body.resourceId : null;
     if (resourceId) {
       const resource = await prisma.resource.findFirst({ where: { id: resourceId, userId: user.userId } });
       if (!resource) return NextResponse.json({ error: 'Selected resource does not belong to you' }, { status: 400 });
     }
 
     const publicReplyTemplates = Array.isArray(body.publicReplyTemplates)
-      ? body.publicReplyTemplates.filter((value: unknown): value is string => typeof value === 'string' && Boolean(value.trim())).map((value: string) => value.trim().slice(0, 1000))
+      ? body.publicReplyTemplates
+          .filter((value: unknown): value is string => typeof value === 'string' && Boolean(value.trim()))
+          .map((value: string) => value.trim().slice(0, 1000))
+          .slice(0, 10)
       : [];
-    const automation = await prisma.$transaction(async (tx) => {
-      if (status === 'ACTIVE') await assertAutomationLimit(tx, user.userId, user.role);
-      return tx.automation.create({
-        data: {
-          userId: user.userId,
-          instagramAccountId: connection.instagramAccountId,
-          mediaId,
-          resourceId,
-          name,
-          status,
-          triggerType,
-          matchingMode,
-          keywords,
-          dmMessageTemplate: body.dmMessageTemplate.trim(),
-          publicReplyEnabled: Boolean(body.publicReplyEnabled) && publicReplyTemplates.length > 0,
-          publicReplyTemplates,
-          ignoreOwnerComments: body.ignoreOwnerComments !== false,
-          oneDeliveryPerUser: body.oneDeliveryPerUser !== false,
-          // Meta permits only one private reply per comment; this cannot safely be disabled.
-          oneDeliveryPerComment: true,
-          followGateEnabled: body.followGateEnabled !== false,
-        },
+    if (status === 'ACTIVE' && existingAutomation?.status !== 'ACTIVE') {
+      const owner = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { plan: true, role: true },
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    return NextResponse.json({ automation }, { status: 201 });
+      if (!owner) return NextResponse.json({ error: 'Workspace owner not found' }, { status: 404 });
+      const limit = getPlan(owner.plan).activeAutomationLimit;
+      if (owner.role !== 'ADMIN' && limit !== null) {
+        const activeCount = await prisma.automation.count({ where: { userId: user.userId, status: 'ACTIVE' } });
+        if (activeCount >= limit) {
+          return NextResponse.json({ error: `Your plan allows ${limit} active automation${limit === 1 ? '' : 's'}. Pause one or upgrade.` }, { status: 409 });
+        }
+      }
+    }
+
+    const configuration = {
+      mediaId,
+      resourceId,
+      name,
+      status,
+      triggerType,
+      matchingMode,
+      keywords,
+      dmMessageTemplate: body.dmMessageTemplate.trim(),
+      publicReplyEnabled: Boolean(body.publicReplyEnabled) && publicReplyTemplates.length > 0,
+      publicReplyTemplates,
+      ignoreOwnerComments: body.ignoreOwnerComments !== false,
+      oneDeliveryPerUser: body.oneDeliveryPerUser !== false,
+      oneDeliveryPerComment: body.oneDeliveryPerComment !== false,
+      followGateEnabled: body.followGateEnabled !== false,
+    };
+    const automation = existingAutomation
+      ? await prisma.automation.update({ where: { id: existingAutomation.id }, data: configuration })
+      : await prisma.automation.create({
+          data: {
+            userId: user.userId,
+            instagramAccountId: connection.instagramAccountId,
+            ...configuration,
+          },
+        });
+    return NextResponse.json({ automation }, { status: existingAutomation ? 200 : 201 });
   } catch (error) {
     if (unauthorized(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     if (error instanceof AutomationLimitError) return NextResponse.json({ error: error.message }, { status: 409 });
@@ -137,15 +166,23 @@ export async function PATCH(req: NextRequest) {
     if (typeof id !== 'string' || typeof status !== 'string' || !statuses.has(status)) {
       return NextResponse.json({ error: 'Invalid automation update' }, { status: 400 });
     }
-    const automation = await prisma.$transaction(async (tx) => {
-      const owned = await tx.automation.findFirst({ where: { id, userId: user.userId } });
-      if (!owned) return null;
-      if (status === 'ACTIVE' && owned.status !== 'ACTIVE') {
-        await assertAutomationLimit(tx, user.userId, user.role, id);
+    if (status === 'ACTIVE') {
+      const [owner, target] = await Promise.all([
+        prisma.user.findUnique({ where: { id: user.userId }, select: { plan: true, role: true } }),
+        prisma.automation.findFirst({ where: { id, userId: user.userId }, select: { status: true } }),
+      ]);
+      if (!target) return NextResponse.json({ error: 'Automation not found' }, { status: 404 });
+      const limit = getPlan(owner?.plan).activeAutomationLimit;
+      if (target.status !== 'ACTIVE' && owner?.role !== 'ADMIN' && limit !== null) {
+        const activeCount = await prisma.automation.count({ where: { userId: user.userId, status: 'ACTIVE' } });
+        if (activeCount >= limit) {
+          return NextResponse.json({ error: `Your plan allows ${limit} active automation${limit === 1 ? '' : 's'}.` }, { status: 409 });
+        }
       }
-      return tx.automation.update({ where: { id }, data: { status } });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    if (!automation) return NextResponse.json({ error: 'Automation not found' }, { status: 404 });
+    }
+    const result = await prisma.automation.updateMany({ where: { id, userId: user.userId }, data: { status } });
+    if (result.count === 0) return NextResponse.json({ error: 'Automation not found' }, { status: 404 });
+    const automation = await prisma.automation.findUnique({ where: { id } });
     return NextResponse.json({ automation });
   } catch (error) {
     if (unauthorized(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
@@ -164,8 +201,9 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'Automation ID is required' }, { status: 400 });
 
-    const owned = await prisma.automation.findFirst({ where: { id, userId: user.userId }, select: { id: true } });
-    if (!owned) return NextResponse.json({ error: 'Automation not found' }, { status: 404 });
+    // Ownership is enforced on the parent delete. Related runs cascade from the
+    // schema, so another user's run history can never be touched by a guessed ID.
+    const result = await prisma.automation.deleteMany({ where: { id, userId: user.userId } });
 
     // AutomationRun rows cascade only after ownership has been verified.
     await prisma.automation.delete({ where: { id: owned.id } });

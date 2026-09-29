@@ -1,27 +1,19 @@
 #!/usr/bin/env node
 /**
- * Create (or reset) the ADMIN account from the command line.
- *
- * Usage — run where the database is reachable, with DATABASE_URL set:
- *   DATABASE_URL="postgresql://user:pass@host:5432/db" \
- *   node scripts/create-admin.mjs --email you@example.com --password 'Secure#1234'
- *
- * Add --reset to change the password of an existing admin.
- *
- * No credentials are stored anywhere in git. The password is hashed with
- * bcrypt before it touches the database. For the web flow use /setup once.
+ * Create or reset the ADMIN account from a trusted command line.
+ * Usage: npm run admin:create -- --email you@example.com --password 'Secure#1234'
  */
-import { PrismaClient } from '../src/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
+import { PrismaClient } from '../src/generated/prisma/client';
 
-function fail(message) {
+function fail(message: string): never {
   console.error('Error:', message);
   process.exit(1);
 }
 
 const args = process.argv.slice(2);
-function arg(name) {
+function arg(name: string) {
   const index = args.indexOf(`--${name}`);
   return index !== -1 && args[index + 1] ? args[index + 1] : null;
 }
@@ -38,19 +30,17 @@ const validPassword = typeof password === 'string'
   && /[a-z]/.test(password)
   && /[0-9]/.test(password)
   && /[^A-Za-z0-9\s]/.test(password);
-if (!validPassword) {
-  fail('Password must be 10–20 characters with uppercase, lowercase, number, and special character');
-}
-if (!process.env.DATABASE_URL) fail('DATABASE_URL is not set — export the production connection string first');
+if (!validPassword) fail('Password must be 10–20 characters with uppercase, lowercase, number, and special character');
 
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
-});
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) fail('DATABASE_URL is not set — export the production connection string first');
+
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 const normalizedEmail = email.trim().toLowerCase();
 
 try {
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing && existing.role === 'ADMIN' && !reset) {
+  if (existing?.role === 'ADMIN' && !reset) {
     fail('This admin already exists. Add --reset to change the password.');
   }
 
@@ -72,7 +62,7 @@ try {
   console.log('Admin ready:', user.email, `(id ${user.id})`);
   console.log('Sign in at /login with this email and password.');
 } catch (error) {
-  fail(error.message || 'Unable to create admin');
+  fail(error instanceof Error ? error.message : 'Unable to create admin');
 } finally {
   await prisma.$disconnect();
 }
