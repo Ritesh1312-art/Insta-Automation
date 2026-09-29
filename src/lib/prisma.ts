@@ -4,10 +4,11 @@ import { PrismaClient } from '@/generated/prisma/client';
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function createPrismaClient() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error('DATABASE_URL must be configured');
-  }
+  // Next.js imports route modules while collecting build metadata. Keep that
+  // phase database-independent; env:check still enforces production setup and
+  // /api/health reports a missing or unreachable database as degraded.
+  const connectionString = process.env.DATABASE_URL
+    || 'postgresql://invalid:invalid@127.0.0.1:5432/invalid';
 
   const adapter = new PrismaPg({ connectionString });
   return new PrismaClient({
