@@ -24,28 +24,6 @@ function asArray(value: unknown): Array<Record<string, any>> {
     : [];
 }
 
-export type ParsedCommentEvent = {
-  instagramAccountId: string;
-  mediaId: string;
-  commentId: string;
-  commenterId: string;
-  commenterUsername: string;
-  commentText: string;
-  rawPayload: unknown;
-};
-
-export type ParsedMessagingEvent = {
-  eventId: string;
-  instagramAccountId: string;
-  senderId: string;
-  postbackPayload: string;
-  rawPayload: unknown;
-};
-
-function stableEventId(parts: unknown[]) {
-  return `messaging:${crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex')}`;
-}
-
 export class WebhookService {
   private static get appSecret() {
     return process.env.META_APP_SECRET || '';
@@ -116,7 +94,7 @@ export class WebhookService {
       }
     }
 
-    return Array.from(new Map(events.map((event) => [`${event.instagramAccountId}:${event.commentId}`, event])).values());
+    return events;
   }
 
   public static parseMessagingEvents(payload: unknown): MessagingWebhookEvent[] {

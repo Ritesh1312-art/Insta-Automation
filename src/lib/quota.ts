@@ -114,19 +114,6 @@ export async function incrementDmUsage(userId: string) {
     where: { id: userId },
     data: { dmsUsedThisMonth: { increment: 1 } },
   });
-  if (reserved.count !== 1) {
-    return { ok: false, message: `${plan.name} plan quota reached (${quota} DMs / 30 days). Upgrade or wait for reset.` };
-  }
-  return { ok: true, counted: true };
-}
-
-/** Releases a reservation when Meta rejects or never receives the request. */
-export async function releaseDmQuota(userId: string, reservation: DmReservation) {
-  if (!reservation.ok || !reservation.counted) return;
-  await prisma.user.updateMany({
-    where: { id: userId, dmsUsedThisMonth: { gt: 0 } },
-    data: { dmsUsedThisMonth: { decrement: 1 } },
-  });
 }
 
 export async function applyApprovedPlan(userId: string, planId: PlanId) {

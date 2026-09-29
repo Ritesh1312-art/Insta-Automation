@@ -56,7 +56,7 @@ try {
       subscriptionStatus: 'ACTIVE',
       quotaResetAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     },
-    update: { passwordHash, role: 'ADMIN', sessionVersion: { increment: 1 } },
+    update: { passwordHash, role: 'ADMIN' },
   });
 
   console.log('Admin ready:', user.email, `(id ${user.id})`);

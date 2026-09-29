@@ -7,8 +7,6 @@ import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
-    const rate = await consumeRateLimit({ scope: 'admin-password-reset', identifier: requestIp(request), limit: 10, windowMs: 60 * 60 * 1000 });
-    if (!rate.allowed) return NextResponse.json({ error: 'Too many reset attempts. Try again later.' }, rateLimitResponse(rate));
     const { email, password, token } = await request.json();
     const allowed = await consumeRateLimit({
       action: 'RATE_LIMIT_ADMIN_RESET',
@@ -37,7 +35,7 @@ export async function POST(request: NextRequest) {
 
     await prisma.user.update({
       where: { email: normalizedEmail },
-      data: { passwordHash: await bcrypt.hash(password, 12), sessionVersion: { increment: 1 } },
+      data: { passwordHash: await bcrypt.hash(password, 12) },
     });
     return NextResponse.json({ success: true, message: 'Password updated successfully' });
   } catch {

@@ -7,8 +7,6 @@ import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
-    const rate = await consumeRateLimit({ scope: 'initial-admin-setup', identifier: requestIp(request), limit: 10, windowMs: 60 * 60 * 1000 });
-    if (!rate.allowed) return NextResponse.json({ error: 'Too many setup attempts. Try again later.' }, rateLimitResponse(rate));
     const { email, password, token } = await request.json();
     const allowed = await consumeRateLimit({
       action: 'RATE_LIMIT_ADMIN_SETUP',

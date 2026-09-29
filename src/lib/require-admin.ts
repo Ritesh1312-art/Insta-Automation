@@ -1,8 +1,12 @@
+import { prisma } from '@/lib/prisma';
 import { requireSessionUser, type JWTPayload } from '@/lib/auth';
 
 export async function requireAdmin(): Promise<JWTPayload> {
   const session = await requireSessionUser();
-  if (session.role !== 'ADMIN') throw new Error('FORBIDDEN');
+  const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { role: true } });
+  if (!user || user.role !== 'ADMIN') {
+    throw new Error('FORBIDDEN');
+  }
   return session;
 }
 

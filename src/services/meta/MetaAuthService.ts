@@ -17,9 +17,8 @@ export interface ConnectedInstagramAccount {
   instagramAccountId: string;
   instagramUsername: string;
   profilePictureUrl?: string;
-  facebookPageId: string;
+  facebookPageId?: string;
   accessToken: string;
-  scopes: string[];
   expiresInSeconds?: number;
   webhookSubscriptionWarnings?: string[];
 }
@@ -108,7 +107,6 @@ export class MetaAuthService {
     if (!userResponse.ok || !metaUser.id) {
       throw new Error(metaUser.error?.message || 'Unable to identify the authorized Meta user');
     }
-    const userToken = longLivedData.access_token;
 
     const configuredPageId = process.env.META_FACEBOOK_PAGE_ID?.trim();
     const pageUrl = configuredPageId

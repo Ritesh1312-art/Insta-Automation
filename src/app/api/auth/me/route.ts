@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireSessionUser } from '@/lib/auth';
+import { getSessionUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { getPlan } from '@/lib/plans';
 import { resetQuotaIfNeeded } from '@/lib/quota';
@@ -7,12 +7,8 @@ import { resetQuotaIfNeeded } from '@/lib/quota';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  let session;
-  try {
-    session = await requireSessionUser();
-  } catch {
-    return NextResponse.json({ user: null }, { status: 401 });
-  }
+  const session = await getSessionUser();
+  if (!session) return NextResponse.json({ user: null }, { status: 401 });
 
   await resetQuotaIfNeeded(session.userId);
   const user = await prisma.user.findUnique({

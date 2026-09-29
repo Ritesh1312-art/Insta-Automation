@@ -10,7 +10,6 @@ export interface JWTPayload {
   userId: string;
   email: string;
   role: string;
-  sessionVersion: number;
 }
 
 function authKey() {
@@ -61,23 +60,10 @@ export async function getSessionUser(): Promise<JWTPayload | null> {
   return token ? verifyToken(token) : null;
 }
 
-/** Verifies both the JWT and its revocation version against the current user. */
 export async function requireSessionUser(): Promise<JWTPayload> {
-  const session = await getSessionUser();
-  if (!session) throw new Error('UNAUTHORIZED');
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { email: true, role: true, sessionVersion: true },
-  });
-  if (!user || user.sessionVersion !== session.sessionVersion) throw new Error('UNAUTHORIZED');
-
-  return {
-    userId: session.userId,
-    email: user.email,
-    role: user.role,
-    sessionVersion: user.sessionVersion,
-  };
+  const user = await getSessionUser();
+  if (!user) throw new Error('UNAUTHORIZED');
+  return user;
 }
 
 export async function createOAuthState(userId: string): Promise<string> {

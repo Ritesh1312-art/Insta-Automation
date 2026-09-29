@@ -1,6 +1,5 @@
-import bcrypt from 'bcryptjs';
-import { Prisma } from '@/generated/prisma/client';
 import { NextRequest, NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { signToken } from '@/lib/auth';
 import { PLANS } from '@/lib/plans';
@@ -10,16 +9,6 @@ import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
-    const rate = await consumeRateLimit({
-      scope: 'register',
-      identifier: requestIp(req),
-      limit: 5,
-      windowMs: 60 * 60 * 1000,
-    });
-    if (!rate.allowed) {
-      return NextResponse.json({ error: 'Too many registration attempts. Try again later.' }, rateLimitResponse(rate));
-    }
-
     const body = await req.json();
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
     const password = typeof body.password === 'string' ? body.password : '';
@@ -62,16 +51,8 @@ export async function POST(req: NextRequest) {
     });
 
     await sendWelcomeEmail(user.email, user.name);
-    const token = await signToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      sessionVersion: user.sessionVersion,
-    });
-    const response = NextResponse.json(
-      { success: true, user: { id: user.id, email: user.email, name: user.name } },
-      { status: 201 },
-    );
+    const token = await signToken({ userId: user.id, email: user.email, role: user.role });
+    const response = NextResponse.json({ success: true, user: { id: user.id, email: user.email, name: user.name } }, { status: 201 });
     response.cookies.set('auth_token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -81,9 +62,6 @@ export async function POST(req: NextRequest) {
     });
     return response;
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return NextResponse.json({ error: 'An account with this email already exists' }, { status: 409 });
-    }
     console.error('Registration failed:', error);
     return NextResponse.json({ error: 'Unable to create account' }, { status: 500 });
   }

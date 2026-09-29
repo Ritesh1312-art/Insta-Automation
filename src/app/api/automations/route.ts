@@ -1,4 +1,3 @@
-import { Prisma } from '@/generated/prisma/client';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/auth';
@@ -10,26 +9,6 @@ const matchingModes = new Set(['EXACT', 'CONTAINS', 'STARTS_WITH', 'CASE_SENSITI
 
 function unauthorized(error: unknown) {
   return error instanceof Error && error.message === 'UNAUTHORIZED';
-}
-
-class AutomationLimitError extends Error {}
-
-async function assertAutomationLimit(
-  tx: Prisma.TransactionClient,
-  userId: string,
-  role: string,
-  excludeId?: string,
-) {
-  if (role === 'ADMIN') return;
-  const owner = await tx.user.findUnique({ where: { id: userId }, select: { plan: true } });
-  const plan = getPlan(owner?.plan);
-  if (plan.activeAutomationLimit === null) return;
-  const active = await tx.automation.count({
-    where: { userId, status: 'ACTIVE', ...(excludeId ? { id: { not: excludeId } } : {}) },
-  });
-  if (active >= plan.activeAutomationLimit) {
-    throw new AutomationLimitError(`${plan.name} supports ${plan.activeAutomationLimit} active automation${plan.activeAutomationLimit === 1 ? '' : 's'}. Pause one or upgrade your plan.`);
-  }
 }
 
 export async function GET() {
@@ -150,10 +129,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ automation }, { status: existingAutomation ? 200 : 201 });
   } catch (error) {
     if (unauthorized(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    if (error instanceof AutomationLimitError) return NextResponse.json({ error: error.message }, { status: 409 });
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
-      return NextResponse.json({ error: 'Automation changed concurrently. Please try again.' }, { status: 409 });
-    }
     console.error('Automation creation error:', error);
     return NextResponse.json({ error: 'Unable to create automation' }, { status: 500 });
   }
@@ -186,10 +161,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ automation });
   } catch (error) {
     if (unauthorized(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    if (error instanceof AutomationLimitError) return NextResponse.json({ error: error.message }, { status: 409 });
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
-      return NextResponse.json({ error: 'Automation changed concurrently. Please try again.' }, { status: 409 });
-    }
     return NextResponse.json({ error: 'Unable to update automation' }, { status: 500 });
   }
 }
@@ -205,8 +176,7 @@ export async function DELETE(req: NextRequest) {
     // schema, so another user's run history can never be touched by a guessed ID.
     const result = await prisma.automation.deleteMany({ where: { id, userId: user.userId } });
 
-    // AutomationRun rows cascade only after ownership has been verified.
-    await prisma.automation.delete({ where: { id: owned.id } });
+    if (result.count === 0) return NextResponse.json({ error: 'Automation not found' }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
     if (unauthorized(error)) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });

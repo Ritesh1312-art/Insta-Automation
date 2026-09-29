@@ -3,31 +3,25 @@ import { WebhookService } from '@/services/webhooks/WebhookService';
 import { AutomationEngine } from '@/services/automation/AutomationEngine';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const params = req.nextUrl.searchParams;
-  const challenge = WebhookService.verifyChallenge(
-    params.get('hub.mode'),
-    params.get('hub.verify_token'),
-    params.get('hub.challenge'),
-  );
-  if (challenge) return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+  const params = new URL(req.url).searchParams;
+  const challenge = WebhookService.verifyChallenge(params.get('hub.mode'), params.get('hub.verify_token'), params.get('hub.challenge'));
+  if (challenge) {
+    return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+  }
   return NextResponse.json({ error: 'Verification failed' }, { status: 403 });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const declaredSize = Number.parseInt(req.headers.get('content-length') || '0', 10);
-    if (declaredSize > 1_000_000) return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 });
-
     const rawBody = await req.text();
     if (Buffer.byteLength(rawBody, 'utf8') > 1_000_000) return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 });
-    if (!WebhookService.verifySignature(rawBody, req.headers.get('x-hub-signature-256'))) {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    }
+    if (!WebhookService.verifySignature(rawBody, req.headers.get('x-hub-signature-256'))) return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
 
-    const parsedBody: unknown = JSON.parse(rawBody);
+    const parsedBody = JSON.parse(rawBody);
+
+    // 1. Process Comment Webhook Events
     const commentEvents = WebhookService.parseCommentEvents(parsedBody);
     const storedComments = await Promise.all(commentEvents.map((event) => AutomationEngine.ingestCommentEvent(event)));
     after(async () => {

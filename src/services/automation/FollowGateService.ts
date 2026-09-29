@@ -4,16 +4,6 @@ import { InstagramMessagingService, type ApiResponse } from '@/services/meta/Ins
 
 export type GateStatus = 'NEW' | 'FOLLOW_ASKED' | 'CLAIMED' | 'UNLOCKED' | 'DELIVERED';
 
-type DispatchParams = {
-  mode: 'comment' | 'direct';
-  commentId?: string;
-  recipientId?: string;
-  instagramAccountId: string;
-  accessToken: string;
-  template: any;
-  fallback: string;
-};
-
 const CONFIRM_PHRASES = [
   'done',
   'i followed',

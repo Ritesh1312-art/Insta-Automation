@@ -23,4 +23,4 @@ const config = {
   },
 };
 
-export default defineCloudflareConfig();
+export default config;

@@ -36,10 +36,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Custom QR URL must use HTTPS' }, { status: 400 });
     }
 
-    if (qrCodeUrl && !/^https:\/\//i.test(qrCodeUrl)) {
-      return NextResponse.json({ error: 'Custom QR URL must use HTTPS' }, { status: 400 });
-    }
-
     await prisma.user.updateMany({
       where: { role: 'ADMIN' },
       data: { adminUpiId: upiId, adminQrCodeUrl: qrCodeUrl },
