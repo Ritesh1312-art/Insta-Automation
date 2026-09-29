@@ -56,11 +56,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <header className="relative z-20 flex items-center justify-between border-b border-white/10 px-4 py-3 md:hidden">
         <span className="font-display text-lg font-black">InstaDM</span>
-        <button onClick={() => setOpen(!open)}>{open ? <X /> : <Menu />}</button>
+        <button type="button" aria-label={open ? 'Close navigation' : 'Open navigation'} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? <X /> : <Menu />}</button>
       </header>
 
       <div className="relative z-10 mx-auto flex max-w-[1400px]">
-        <aside className={`md:flex ${open ? 'flex' : 'hidden'} w-full flex-col justify-between border-white/10 bg-black/30 p-4 backdrop-blur-xl md:sticky md:top-0 md:h-screen md:w-64 md:border-r`}>
+        <aside className={`md:flex ${open ? 'flex' : 'hidden'} fixed inset-x-0 bottom-0 top-[61px] z-30 w-full flex-col justify-between border-white/10 bg-zinc-950/95 p-4 backdrop-blur-xl md:sticky md:top-0 md:h-screen md:w-64 md:border-r md:bg-black/30`}>
           <div>
             <div className="mb-8 hidden items-center gap-3 md:flex">
               <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-fuchsia-500 via-rose-500 to-amber-300 font-display text-lg font-black text-zinc-950">
@@ -74,11 +74,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <nav className="space-y-1">
               {nav.map((item) => {
                 const Icon = item.icon;
-                const active = pathname === item.href;
+                const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(`${item.href}/`));
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => setOpen(false)}
                     className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-semibold ${active ? 'bg-white text-zinc-950' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
                   >
                     <Icon className="h-4 w-4" /> {item.name}

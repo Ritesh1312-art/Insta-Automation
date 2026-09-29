@@ -5,9 +5,9 @@ Instagram comment-to-DM automation for **professional accounts**, using official
 The product is a follow-gate lead magnet, not a growth hacker:
 
 1. A comment matches a keyword.
-2. One private reply asks the person to follow and confirm.
-3. They tap **I Followed** or reply `DONE` (honor system — Instagram has no follow webhook).
-4. An unlock card is sent, then the resource is delivered on the final button.
+2. A private welcome reply offers **Send me the Access**.
+3. On that click, the app checks the current Meta follow relationship.
+4. Followers receive the resource; non-followers get **Follow Me** and **I've followed**, with a fresh check on every attempt.
 
 ## Plans
 
@@ -53,19 +53,19 @@ npm run cf:deploy
 
 After connect, the studio wall loads real Instagram thumbnails (not name-only rows). Tap a post to attach the auto-DM.
 
-## Cloudbase / generic Node host
+## Generic Node host
 
-Same app is a standard Next.js 15 + Prisma project:
+The app is a standard Next.js 16 + Rust-free Prisma/Postgres project:
 
 ```bash
 npm ci
-npx prisma generate
-npx prisma db push
+npm run env:check
+npm run db:deploy
 npm run build
 npm start
 ```
 
-Point a process supervisor at `npm start`. Schedule `GET /api/jobs/process-webhooks` with header `Authorization: Bearer $CRON_SECRET` every 5 minutes.
+`db:deploy` uses checked-in, repeatable migrations. Never use `prisma db push` against production. Point a process supervisor at `npm start`. Schedule `GET /api/jobs/process-webhooks` with header `Authorization: Bearer $CRON_SECRET` every 5 minutes.
 
 ## Payments
 
@@ -73,15 +73,35 @@ Checkout is **direct UPI only**. Set `UPI_ID` and `UPI_PAYEE_NAME` (or save the 
 
 ## Policy notes
 
-See `/policies`. Follow confirms are not cryptographic proof of a follow. High-volume “any comment” automations increase restriction risk. This software cannot prevent Instagram from limiting the connected account.
+See `/policies`. Follow-gated delivery fails closed when Meta cannot return the current relationship. High-volume “any comment” automations increase restriction risk. This software cannot prevent Instagram from limiting the connected account.
 
 ## Local run
 
 ```bash
+cp .env.example .env
 npm ci
-npx prisma generate
-npx prisma db push
+npm run db:generate
+npm run db:deploy
 npm run dev
 ```
 
-redeploy trigger 2026-09-16-1
+## Release verification
+
+Before every production release:
+
+```bash
+npm ci
+npm run env:check
+npm run db:validate
+npm run check
+npm run test:coverage
+npm audit --audit-level=low
+npm run build
+npm run cf:build       # Cloudflare target only
+```
+
+The test suite exercises signed webhook parsing, OAuth/session separation, encrypted credentials, CSRF, ownership boundaries, comment matching, follow-gate button spoofing, DM endpoint fallbacks, quota reservation/release, payment locking/review, and database-backed rate limiting.
+
+## Live certification boundary
+
+A successful build proves code/package readiness; it does **not** prove external services are correctly provisioned. Before taking payments or enabling automations, complete [PRODUCTION_CHECKLIST.md](./PRODUCTION_CHECKLIST.md) with the real production Postgres database, Meta professional account/app review, webhook delivery, UPI settlement account, and any Telegram/SMTP integrations. Never activate a paid plan until its UTR is visibly credited in the bank/UPI app.

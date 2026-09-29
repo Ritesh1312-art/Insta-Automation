@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { incrementDmUsage } from '@/lib/quota';
+import { releaseDmQuota, reserveDmQuota } from '@/lib/quota';
 import { InstagramMessagingService, type ApiResponse } from '@/services/meta/InstagramMessagingService';
 
 export type GateStatus = 'NEW' | 'FOLLOW_ASKED' | 'CLAIMED' | 'UNLOCKED' | 'DELIVERED';
@@ -33,7 +33,7 @@ export function parseButtonPayload(raw: string): { action: 'GET_ACCESS' | 'CONFI
   return { action: 'UNKNOWN' };
 }
 
-export function isHonorFollowConfirm(text: string): boolean {
+export function isFollowRetryText(text: string): boolean {
   const normalized = text
     .toLowerCase()
     .trim()
@@ -62,6 +62,34 @@ function renderTemplate(template: string, username: string, resourceUrl?: string
 }
 
 export class FollowGateService {
+  public static async sendAccessWelcome(params: {
+    mode: 'comment' | 'direct';
+    commentId?: string;
+    recipientId?: string;
+    instagramAccountId: string;
+    accessToken: string;
+    automationId: string;
+    userId: string;
+    commenterUsername?: string | null;
+  }): Promise<ApiResponse> {
+    const name = params.commenterUsername ? `@${params.commenterUsername}` : 'there';
+    const template = genericCard(
+      `Hey ${name}! Your access is ready`,
+      'Tap below and we will check your follow status before sending it.',
+      [{ type: 'postback', title: 'Send me the Access', payload: `GET_ACCESS_${params.automationId}` }],
+    );
+    const fallback = `Hey ${name}! Reply ACCESS and we will check your follow status before sending your content.`;
+    return this.meteredDispatch(params.userId, {
+      mode: params.mode,
+      commentId: params.commentId,
+      recipientId: params.recipientId,
+      instagramAccountId: params.instagramAccountId,
+      accessToken: params.accessToken,
+      template,
+      fallback,
+    });
+  }
+
   public static async sendFollowAsk(params: {
     mode: 'comment' | 'direct';
     commentId?: string;
@@ -76,19 +104,19 @@ export class FollowGateService {
     const handle = params.commenterUsername ? `@${params.commenterUsername}` : 'there';
     const profileUrl = `https://www.instagram.com/${params.igUsername}/`;
     const title = `Hey ${handle}! Follow to unlock`;
-    const subtitle = `Instagram cannot notify us of follows. Follow @${params.igUsername}, then tap I Followed.`;
+    const subtitle = `Follow @${params.igUsername}, then tap I've followed. We will verify your current follow status.`;
     const template = genericCard(title, subtitle, [
-      { type: 'web_url', url: profileUrl, title: 'Follow profile' },
-      { type: 'postback', title: 'I Followed', payload: `CONFIRM_FOLLOW_${params.automationId}` },
+      { type: 'web_url', url: profileUrl, title: 'Follow Me' },
+      { type: 'postback', title: "I've followed", payload: `CONFIRM_FOLLOW_${params.automationId}` },
     ]);
     const fallback =
       `Hey ${handle}!\n\n` +
       `To unlock access:\n` +
       `1) Follow @${params.igUsername}: ${profileUrl}\n` +
-      `2) Reply DONE or tap I Followed.\n\n` +
-      `We cannot detect follows automatically. Confirm only after you follow.`;
+      `2) Reply DONE after following.\n\n` +
+      `We will verify your current follow status before sending the content.`;
 
-    const result = await this.dispatch({
+    return this.meteredDispatch(params.userId, {
       mode: params.mode,
       commentId: params.commentId,
       recipientId: params.recipientId,
@@ -97,35 +125,6 @@ export class FollowGateService {
       template,
       fallback,
     });
-    if (result.success) await incrementDmUsage(params.userId);
-    return result;
-  }
-
-  public static async sendUnlockCard(params: {
-    recipientId: string;
-    instagramAccountId: string;
-    accessToken: string;
-    automationId: string;
-    userId: string;
-    username?: string | null;
-  }): Promise<ApiResponse> {
-    const name = params.username || 'there';
-    const template = genericCard(
-      'Access unlocked',
-      `Thanks ${name}. Tap below to receive your resource.`,
-      [{ type: 'postback', title: 'Send my resource', payload: `DELIVER_RESOURCE_${params.automationId}` }]
-    );
-    const fallback = `Access unlocked, ${name}. Reply RESOURCE or tap the button to receive your content.`;
-    const result = await this.dispatch({
-      mode: 'direct',
-      recipientId: params.recipientId,
-      instagramAccountId: params.instagramAccountId,
-      accessToken: params.accessToken,
-      template,
-      fallback,
-    });
-    if (result.success) await incrementDmUsage(params.userId);
-    return result;
   }
 
   public static async sendResource(params: {
@@ -139,14 +138,18 @@ export class FollowGateService {
     resourceText?: string | null;
   }): Promise<ApiResponse> {
     const username = params.username || 'there';
-    const body = renderTemplate(params.messageTemplate || params.resourceText || 'Here is your resource.', username, params.resourceUrl);
+    const message = renderTemplate(params.messageTemplate || 'Here is your resource.', username, params.resourceUrl);
+    const resourceText = params.resourceText
+      ? renderTemplate(params.resourceText, username, params.resourceUrl)
+      : '';
+    const body = resourceText && resourceText !== message ? `${message}\n\n${resourceText}` : message;
     const buttons = params.resourceUrl
       ? [{ type: 'web_url', url: params.resourceUrl, title: 'Open resource' }]
       : [];
     const template = buttons.length
       ? genericCard('Your resource is ready', body.slice(0, 80), buttons)
       : null;
-    const result = await this.dispatch({
+    return this.meteredDispatch(params.userId, {
       mode: 'direct',
       recipientId: params.recipientId,
       instagramAccountId: params.instagramAccountId,
@@ -154,8 +157,6 @@ export class FollowGateService {
       template,
       fallback: body,
     });
-    if (result.success) await incrementDmUsage(params.userId);
-    return result;
   }
 
   public static async upsertContact(params: {
@@ -194,6 +195,24 @@ export class FollowGateService {
         lastGateMessageAt: new Date(),
       },
     });
+  }
+
+  private static async meteredDispatch(userId: string, params: {
+    mode: 'comment' | 'direct';
+    commentId?: string;
+    recipientId?: string;
+    instagramAccountId: string;
+    accessToken: string;
+    template: any;
+    fallback: string;
+  }): Promise<ApiResponse> {
+    const reservation = await reserveDmQuota(userId);
+    if (!reservation.ok) {
+      return { success: false, errorCategory: 'VALIDATION', errorMessage: reservation.message };
+    }
+    const result = await this.dispatch(params);
+    if (!result.success) await releaseDmQuota(userId, reservation);
+    return result;
   }
 
   private static async dispatch(params: {

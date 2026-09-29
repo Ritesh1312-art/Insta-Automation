@@ -6,6 +6,7 @@ import { isAuthError, requireAdmin } from '@/lib/require-admin';
 
 export async function GET() {
   try {
+    await requireAdmin();
     const checkout = await resolveCheckoutUpi();
     return NextResponse.json({
       adminUpiId: checkout.upiId,
@@ -14,8 +15,10 @@ export async function GET() {
       autoQr: Boolean(checkout.upiId) && !checkout.customQrUrl,
       source: checkout.source,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Failed to fetch Admin UPI settings' }, { status: 500 });
+  } catch (error) {
+    if (isAuthError(error, 'UNAUTHORIZED')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    if (isAuthError(error, 'FORBIDDEN')) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+    return NextResponse.json({ error: 'Unable to fetch admin UPI settings' }, { status: 500 });
   }
 }
 
@@ -24,23 +27,27 @@ export async function POST(req: Request) {
     await requireAdmin();
     const { adminUpiId, adminQrCodeUrl } = await req.json();
     const upiId = String(adminUpiId || '').trim();
+    const qrCodeUrl = typeof adminQrCodeUrl === 'string' ? adminQrCodeUrl.trim() : '';
 
     if (!upiId || !isValidUpiId(upiId)) {
       return NextResponse.json({ error: 'A valid Admin UPI ID is required (example: name@okaxis)' }, { status: 400 });
     }
+    if (qrCodeUrl && !/^https:\/\//i.test(qrCodeUrl)) {
+      return NextResponse.json({ error: 'Custom QR URL must use HTTPS' }, { status: 400 });
+    }
 
     await prisma.user.updateMany({
       where: { role: 'ADMIN' },
-      data: { adminUpiId: upiId, adminQrCodeUrl: adminQrCodeUrl ? String(adminQrCodeUrl).trim() : '' },
+      data: { adminUpiId: upiId, adminQrCodeUrl: qrCodeUrl },
     });
 
     return NextResponse.json({
       success: true,
       message: 'UPI ID saved. Checkout QR is generated automatically from this ID and the plan amount.',
     });
-  } catch (error: any) {
+  } catch (error) {
     if (isAuthError(error, 'UNAUTHORIZED')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     if (isAuthError(error, 'FORBIDDEN')) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-    return NextResponse.json({ error: error.message || 'Failed to save Admin UPI settings' }, { status: 500 });
+    return NextResponse.json({ error: 'Unable to save admin UPI settings' }, { status: 500 });
   }
 }

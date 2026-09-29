@@ -1,9 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
-let waitUntil = (promise: Promise<any>) => { promise.catch(() => undefined); };
-try {
-  const vf = require('@vercel/functions');
-  if (vf?.waitUntil) waitUntil = vf.waitUntil;
-} catch {}
+import { after, NextRequest, NextResponse } from 'next/server';
 import { WebhookService } from '@/services/webhooks/WebhookService';
 import { AutomationEngine } from '@/services/automation/AutomationEngine';
 
@@ -23,24 +18,29 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     if (Buffer.byteLength(rawBody, 'utf8') > 1_000_000) return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 });
     if (!WebhookService.verifySignature(rawBody, req.headers.get('x-hub-signature-256'))) return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    
+
     const parsedBody = JSON.parse(rawBody);
 
     // 1. Process Comment Webhook Events
     const commentEvents = WebhookService.parseCommentEvents(parsedBody);
     const storedComments = await Promise.all(commentEvents.map((event) => AutomationEngine.ingestCommentEvent(event)));
-    waitUntil(Promise.allSettled(storedComments.map((event) => AutomationEngine.processWebhookEvent(event.id))).then(() => undefined));
+    after(async () => {
+      await Promise.allSettled(storedComments.map((event) => AutomationEngine.processWebhookEvent(event.id)));
+    });
 
-    // 2. Process Messaging Postback Events (button clicks like Get Prompt)
+    // Button/text follow-gate actions are processed before acknowledging the
+    // webhook. Unlike comments they are not reconstructable from a scheduled
+    // retry queue, so background-only execution could lose a button click.
     const messagingEvents = WebhookService.parseMessagingEvents(parsedBody);
-    waitUntil(Promise.allSettled(messagingEvents.map((event) => AutomationEngine.processMessagingPostback(event))).then(() => undefined));
-
-    // Referrals only prove a profile link was opened, not a follow. Do not mark followed.
+    const messagingResults = await Promise.all(
+      messagingEvents.map((event) => AutomationEngine.processMessagingPostback(event)),
+    );
 
     return NextResponse.json({
       status: 'RECEIVED',
       commentEventCount: storedComments.length,
       messagingEventCount: messagingEvents.length,
+      messagingProcessedCount: messagingResults.filter((result) => result.status === 'PROCESSED').length,
     });
   } catch (error) {
     console.error('Meta webhook receiver error:', error);

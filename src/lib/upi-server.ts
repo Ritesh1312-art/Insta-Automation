@@ -21,7 +21,7 @@ export async function resolveCheckoutUpi() {
 
   return {
     upiId: adminUpiId || envUpi.upiId,
-    payeeName: envUpi.payeeName || adminName || 'InstaDM Auto',
+    payeeName: envUpi.configuredPayeeName || adminName || 'InstaDM Auto',
     note: envUpi.note,
     customQrUrl,
     source: adminUpiId ? 'admin' : envUpi.upiId ? 'env' : 'missing',

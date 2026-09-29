@@ -5,6 +5,7 @@ import { signToken } from '@/lib/auth';
 import { PLANS } from '@/lib/plans';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
 import { sendWelcomeEmail } from '@/lib/mailer';
+import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,6 +19,19 @@ export async function POST(req: NextRequest) {
     }
     if (!validatePassword(password)) {
       return NextResponse.json({ error: PASSWORD_POLICY_MESSAGE }, { status: 400 });
+    }
+
+    const allowed = await consumeRateLimit({
+      action: 'RATE_LIMIT_REGISTER',
+      fingerprint: requestFingerprint(req, email),
+      limit: 5,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many registration attempts. Try again later.' },
+        { status: 429, headers: { 'Retry-After': '3600' } },
+      );
     }
 
     const existing = await prisma.user.findUnique({ where: { email } });

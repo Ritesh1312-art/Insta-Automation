@@ -13,6 +13,9 @@ export type StudioPost = {
     status: string;
     keywords?: string[];
     dmMessageTemplate?: string;
+    triggerType?: string;
+    followGateEnabled?: boolean;
+    resourceId?: string | null;
   }>;
 };
 

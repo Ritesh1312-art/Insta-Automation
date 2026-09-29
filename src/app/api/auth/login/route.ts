@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { signToken } from '@/lib/auth';
+import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,6 +12,18 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const allowed = await consumeRateLimit({
+      action: 'RATE_LIMIT_LOGIN',
+      fingerprint: requestFingerprint(req, normalizedEmail),
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many sign-in attempts. Try again in 15 minutes.' },
+        { status: 429, headers: { 'Retry-After': '900' } },
+      );
+    }
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
@@ -38,7 +51,7 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Login failed' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Unable to sign in right now' }, { status: 500 });
   }
 }

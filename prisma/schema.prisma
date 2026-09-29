@@ -4,34 +4,36 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma"
+  engineType = "client"
 }
 
 model User {
-  id                     String             @id @default(uuid())
-  email                  String             @unique
-  passwordHash           String
-  name                   String?
-  role                   String             @default("USER")
-  plan                   String             @default("FREE") // FREE, STANDARD, PREMIUM, PREMIUM_PRO, PREMIUM_PRO_PLUS
-  monthlyDmQuota         Int                @default(30)
-  dmsUsedThisMonth       Int                @default(0)
-  quotaResetAt           DateTime?
-  planActivatedAt        DateTime?
-  adminUpiId             String?            // Admin's PhonePe/Paytm/GPay UPI ID
-  adminQrCodeUrl         String?            // Admin's custom UPI QR Code image URL
-  razorpaySubscriptionId String?
-  razorpayCustomerId     String?
+  id                        String             @id @default(uuid())
+  email                     String             @unique
+  passwordHash              String
+  name                      String?
+  role                      String             @default("USER")
+  plan                      String             @default("FREE") // FREE, STANDARD, PREMIUM, PREMIUM_PRO, PREMIUM_PRO_PLUS
+  monthlyDmQuota            Int                @default(30)
+  dmsUsedThisMonth          Int                @default(0)
+  quotaResetAt              DateTime?
+  planActivatedAt           DateTime?
+  adminUpiId                String? // Admin's PhonePe/Paytm/GPay UPI ID
+  adminQrCodeUrl            String? // Admin's custom UPI QR Code image URL
+  razorpaySubscriptionId    String?
+  razorpayCustomerId        String?
   telegramBotTokenEncrypted String?
-  telegramChatId              String?
-  subscriptionStatus     String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED, PENDING_PAYMENT
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
-  metaConnections        MetaConnection[]
-  automations            Automation[]
-  resources              Resource[]
-  auditLogs              AuditLog[]
-  directUpiPayments      DirectUpiPayment[]
+  telegramChatId            String?
+  subscriptionStatus        String             @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED, CANCELLED, PENDING_PAYMENT
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  metaConnections           MetaConnection[]
+  automations               Automation[]
+  resources                 Resource[]
+  auditLogs                 AuditLog[]
+  directUpiPayments         DirectUpiPayment[]
 }
 
 model DirectUpiPayment {
@@ -41,8 +43,8 @@ model DirectUpiPayment {
   userEmail  String
   payerName  String
   payerUpiId String
-  planType   String    // FREE, STANDARD, PREMIUM, PREMIUM_PRO, PREMIUM_PRO_PLUS
-  amount     Float
+  planType   String // FREE, STANDARD, PREMIUM, PREMIUM_PRO, PREMIUM_PRO_PLUS
+  amount     Int
   utrNumber  String    @unique
   status     String    @default("PENDING_REVIEW") // PENDING_REVIEW, VERIFIED, REJECTED
   approvedAt DateTime?
@@ -107,58 +109,58 @@ model Resource {
 }
 
 model Automation {
-  id                    String         @id @default(uuid())
+  id                    String          @id @default(uuid())
   userId                String
-  user                  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   instagramAccountId    String
-  metaConnection        MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
+  metaConnection        MetaConnection  @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
   mediaId               String?
-  media                 Media?         @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  media                 Media?          @relation(fields: [mediaId], references: [id], onDelete: SetNull)
   resourceId            String?
-  resource              Resource?      @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  resource              Resource?       @relation(fields: [resourceId], references: [id], onDelete: SetNull)
   name                  String
-  status                String         @default("DRAFT") // DRAFT, ACTIVE, PAUSED, ERROR, ARCHIVED
-  triggerType           String         @default("KEYWORD") // ANY_COMMENT, KEYWORD
-  matchingMode          String         @default("EXACT") // EXACT, CONTAINS, STARTS_WITH
+  status                String          @default("DRAFT") // DRAFT, ACTIVE, PAUSED, ERROR, ARCHIVED
+  triggerType           String          @default("KEYWORD") // ANY_COMMENT, KEYWORD
+  matchingMode          String          @default("EXACT") // EXACT, CONTAINS, STARTS_WITH
   keywords              String[] // ["HANUMAN", "PROMPT", "LINK"]
-  ignoreOwnerComments   Boolean        @default(true)
-  oneDeliveryPerUser    Boolean        @default(true)
-  oneDeliveryPerComment Boolean        @default(true)
-  followGateEnabled     Boolean        @default(true)
+  ignoreOwnerComments   Boolean         @default(true)
+  oneDeliveryPerUser    Boolean         @default(true)
+  oneDeliveryPerComment Boolean         @default(true)
+  followGateEnabled     Boolean         @default(true)
   dmMessageTemplate     String
-  publicReplyEnabled    Boolean        @default(false)
+  publicReplyEnabled    Boolean         @default(false)
   publicReplyTemplates  String[]
-  totalTriggers         Int            @default(0)
-  totalSuccess          Int            @default(0)
-  totalFailed           Int            @default(0)
+  totalTriggers         Int             @default(0)
+  totalSuccess          Int             @default(0)
+  totalFailed           Int             @default(0)
   lastTriggeredAt       DateTime?
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
   runs                  AutomationRun[]
 
   @@index([instagramAccountId, mediaId, status])
 }
 
 model WebhookEvent {
-  id                 String          @id @default(uuid())
-  instagramAccountId String?
-  metaConnection     MetaConnection? @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: SetNull)
-  eventId            String?         @unique
-  eventType          String // comments, messaging
-  commentId          String?
-  mediaId            String?
-  commenterId        String?
-  commenterUsername  String?
-  commentText        String?
-  rawPayload         Json
-  status             String          @default("RECEIVED") // RECEIVED, PROCESSING, PROCESSED, FAILED, IGNORED, RETRYING
-  errorDetails       String?
-  retryCount         Int             @default(0)
-  nextRetryAt        DateTime?
+  id                  String          @id @default(uuid())
+  instagramAccountId  String?
+  metaConnection      MetaConnection? @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: SetNull)
+  eventId             String?         @unique
+  eventType           String // comments, messaging
+  commentId           String?
+  mediaId             String?
+  commenterId         String?
+  commenterUsername   String?
+  commentText         String?
+  rawPayload          Json
+  status              String          @default("RECEIVED") // RECEIVED, PROCESSING, PROCESSED, FAILED, IGNORED, RETRYING
+  errorDetails        String?
+  retryCount          Int             @default(0)
+  nextRetryAt         DateTime?
   processingStartedAt DateTime?
-  processedAt        DateTime?
-  createdAt          DateTime        @default(now())
-  runs               AutomationRun[]
+  processedAt         DateTime?
+  createdAt           DateTime        @default(now())
+  runs                AutomationRun[]
 
   @@index([status, createdAt])
   @@index([status, nextRetryAt])
@@ -196,7 +198,7 @@ model Contact {
   metaConnection     MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
   igsid              String
   username           String?
-  followedAt         DateTime?      // Honor-system confirm time. Instagram has no follow webhook.
+  followedAt         DateTime? // Last successful live follow-relationship check; never current proof.
   promptSentAt       DateTime?
   followGateStatus   String         @default("NEW") // NEW, FOLLOW_ASKED, CLAIMED, UNLOCKED, DELIVERED
   lastAutomationId   String?

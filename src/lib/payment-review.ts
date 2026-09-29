@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPlan, normalizePlanId } from '@/lib/plans';
 import { planAssignmentData } from '@/lib/quota';
@@ -51,9 +51,17 @@ export async function reviewDirectUpiPayment(params: {
         data: planAssignmentData(planId),
       });
     } else {
+      const currentUser = await tx.user.findUniqueOrThrow({
+        where: { id: existing.userId },
+        select: { plan: true, planActivatedAt: true },
+      });
+      const currentPlan = getPlan(currentUser.plan);
+      const paidTermActive = currentPlan.priceInr > 0
+        && currentUser.planActivatedAt !== null
+        && Date.now() - currentUser.planActivatedAt.getTime() < 30 * 24 * 60 * 60 * 1000;
       await tx.user.update({
         where: { id: existing.userId },
-        data: { subscriptionStatus: 'INACTIVE' },
+        data: { subscriptionStatus: currentPlan.priceInr === 0 || paidTermActive ? 'ACTIVE' : 'EXPIRED' },
       });
     }
 

@@ -3,10 +3,18 @@ import { timingSafeEqual } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
+import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
     const { email, password, token } = await request.json();
+    const allowed = await consumeRateLimit({
+      action: 'RATE_LIMIT_ADMIN_RESET',
+      fingerprint: requestFingerprint(request, typeof email === 'string' ? email : ''),
+      limit: 5,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!allowed) return NextResponse.json({ error: 'Too many reset attempts' }, { status: 429, headers: { 'Retry-After': '3600' } });
     const setupToken = process.env.SETUP_TOKEN;
     const receivedToken = typeof token === 'string' ? Buffer.from(token) : null;
     const expectedToken = setupToken ? Buffer.from(setupToken) : null;
@@ -30,7 +38,7 @@ export async function POST(request: NextRequest) {
       data: { passwordHash: await bcrypt.hash(password, 12) },
     });
     return NextResponse.json({ success: true, message: 'Password updated successfully' });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to reset password' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Unable to reset password' }, { status: 500 });
   }
 }

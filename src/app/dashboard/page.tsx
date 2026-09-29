@@ -1,164 +1,178 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Instagram, RefreshCw, Sparkles } from 'lucide-react';
-import PostCard from '@/components/PostCard';
-import AutomationComposer from '@/components/AutomationComposer';
-import type { StudioPost } from '@/components/studio';
+import Link from 'next/link';
+import { Activity, AlertTriangle, Camera, Film, MessageCircle, Send, Sparkles, Zap } from 'lucide-react';
+
+type StudioStats = {
+  totalAutomations: number;
+  activeAutomations: number;
+  totalCommentsReceived: number;
+  totalRuns: number;
+  totalSuccess: number;
+  totalFailed: number;
+  successRate: number;
+  connectionStatus: string;
+  instagramUsername: string | null;
+  plan: string;
+  monthlyDmQuota: number;
+  dmsUsedThisMonth: number;
+  subscriptionStatus: string;
+};
+
+type RecentRun = {
+  id: string;
+  status: string;
+  createdAt: string;
+  automation?: { name?: string } | null;
+  webhookEvent?: { commenterUsername?: string | null; commentText?: string | null } | null;
+};
 
 export default function DashboardOverview() {
-  const [stats, setStats] = useState<any>(null);
-  const [posts, setPosts] = useState<StudioPost[]>([]);
+  const [stats, setStats] = useState<StudioStats | null>(null);
+  const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [picked, setPicked] = useState<StudioPost | null>(null);
-  const [toast, setToast] = useState('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [syncError, setSyncError] = useState('');
-  const [reauthRequired, setReauthRequired] = useState(false);
+  const [error, setError] = useState('');
+  const [connectionError, setConnectionError] = useState(false);
 
-  const load = async (sync = false) => {
-    if (sync) setSyncing(true);
+  const load = async () => {
     setLoading(true);
-    setSyncError('');
+    setError('');
     try {
-      const [statsRes, mediaRes] = await Promise.all([
+      const [statsResponse, logsResponse] = await Promise.all([
         fetch('/api/stats'),
-        fetch(`/api/media${sync ? '?sync=true' : ''}`),
+        fetch('/api/logs'),
       ]);
-      if (statsRes.ok) setStats(await statsRes.json());
-      const mediaData = await mediaRes.json();
-      if (!mediaRes.ok) throw new Error(mediaData.error || 'Unable to load Instagram posts');
-      setPosts(mediaData.media || []);
-      setReauthRequired(Boolean(mediaData.reauthorizationRequired));
-      if (mediaData.syncError) {
-        setSyncError(`Instagram sync failed, so your cached posts are shown: ${mediaData.syncError}`);
-      }
-    } catch (error) {
-      setSyncError(error instanceof Error ? error.message : 'Unable to load Instagram posts');
+      const [statsData, logsData] = await Promise.all([
+        statsResponse.json(),
+        logsResponse.json(),
+      ]);
+      if (!statsResponse.ok) throw new Error(statsData.error || 'Studio status load nahi ho paaya');
+      if (!logsResponse.ok) throw new Error(logsData.error || 'Latest activity load nahi ho paayi');
+      setStats(statsData);
+      setRecentRuns((logsData.runs || []).slice(0, 5));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Studio load nahi ho paaya');
     } finally {
       setLoading(false);
-      setSyncing(false);
     }
   };
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('error') === 'meta_connection_failed') setErrorMessage('meta_connection_failed');
-    const justConnected = params.get('connected') === 'true';
-    if (justConnected) setToast('Connected. Your Reels are on the board — tap one to drop an auto-DM.');
-    const already = sessionStorage.getItem('ig-synced');
-    load(justConnected || !already).then(() => sessionStorage.setItem('ig-synced', '1'));
+    setConnectionError(new URLSearchParams(window.location.search).get('error') === 'meta_connection_failed');
+    void load();
   }, []);
 
   const handleConnectMeta = async () => {
-    const res = await fetch('/api/auth/meta/url');
-    const data = await res.json();
-    if (data.url) window.location.href = data.url;
+    setError('');
+    try {
+      const response = await fetch('/api/auth/meta/url');
+      const data = await response.json();
+      if (!response.ok || !data.url) throw new Error(data.error || 'Instagram connection start nahi ho paaya');
+      window.location.href = data.url;
+    } catch (connectError) {
+      setError(connectError instanceof Error ? connectError.message : 'Instagram connection start nahi ho paaya');
+    }
   };
 
-  // TOKEN_EXPIRED still means an account IS linked: keep showing the studio and the
-  // cached posts, plus the reconnect banner, instead of the "connect first" state.
   const linkedStatuses = ['CONNECTED', 'TOKEN_EXPIRING', 'TOKEN_EXPIRED', 'ERROR'];
-  const connected = linkedStatuses.includes(stats?.connectionStatus);
+  const connected = Boolean(stats && linkedStatuses.includes(stats.connectionStatus));
+  const reconnectRequired = stats?.connectionStatus === 'TOKEN_EXPIRED' || stats?.connectionStatus === 'ERROR';
+  const quotaPercent = stats
+    ? Math.min(100, Math.round((stats.dmsUsedThisMonth / Math.max(stats.monthlyDmQuota, 1)) * 100))
+    : 0;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
+    <div className="mx-auto max-w-7xl space-y-6">
       <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(251,113,133,0.18),rgba(88,28,135,0.35)_40%,rgba(9,9,11,0.9))] p-6 md:p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.25em] text-fuchsia-300">Studio</p>
             <h1 className="font-display mt-2 text-4xl font-black tracking-tight text-white md:text-5xl">
-              {connected ? `Hey @${stats.instagramUsername}` : 'Your Reels. One tap auto-DM.'}
+              {connected ? `Hey @${stats?.instagramUsername}` : 'Instagram automation dashboard'}
             </h1>
             <p className="mt-3 max-w-xl text-sm text-zinc-300">
-              Connect ke baad yahan asli posts dikhti hain — thumbnail, caption, poori. Naam ki list nahi. Post pe tap, message likho, live.
+              Account connection, DM quota, flow performance aur latest activity ka quick overview.
             </p>
-            {connected && (
-              <p className="mt-4 text-xs text-zinc-400">
-                {stats.plan} · {stats.dmsUsedThisMonth}/{stats.monthlyDmQuota} DMs this cycle
-              </p>
-            )}
           </div>
-          <div className="flex flex-wrap gap-3">
-            {connected ? (
-              <button
-                onClick={() => load(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white"
-              >
-                <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} /> {syncing ? 'Pulling Reels…' : 'Refresh posts'}
-              </button>
-            ) : (
-              <button onClick={handleConnectMeta} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-black text-zinc-950">
-                <Instagram className="h-4 w-4" /> Connect Instagram
-              </button>
-            )}
-          </div>
+          {!connected || reconnectRequired ? (
+            <button onClick={handleConnectMeta} className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-black text-zinc-950">
+              <Camera className="h-4 w-4" /> {reconnectRequired ? 'Reconnect Instagram' : 'Connect Instagram'}
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <Link href="/dashboard/content" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-black text-zinc-950">
+                <Film className="h-4 w-4" /> Posts
+              </Link>
+              <Link href="/dashboard/automations" className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white">
+                <Zap className="h-4 w-4" /> Flows
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 
-      {toast && (
-        <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">{toast}</div>
+      {(connectionError || reconnectRequired) && (
+        <div className="flex gap-2 rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{connectionError ? 'Meta ne connected Page/Instagram account return nahi kiya. Dobara connect karke Page aur Instagram dono select karo.' : 'Instagram token invalid ya expired hai. Automations resume karne ke liye reconnect karo.'}</span>
+        </div>
       )}
+      {error && <p role="alert" className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">{error}</p>}
 
-      {reauthRequired ? (
-        <div className="space-y-3 rounded-2xl border border-rose-500/40 bg-rose-950/30 px-4 py-4 text-sm text-rose-100">
-          <div className="flex gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>Instagram access has been revoked by Meta (password change or invalidated session). Your cached posts are shown below — reconnect to resume live sync and automations.</span>
-          </div>
-          {syncError && <p className="text-xs text-rose-200/80">{syncError}</p>}
-          <button onClick={handleConnectMeta} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-black text-zinc-950">
-            <Instagram className="h-4 w-4" /> Reconnect Instagram
-          </button>
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-3xl bg-white/5" />)}
         </div>
-      ) : syncError ? (
-        <div className="flex gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{syncError}</span>
-        </div>
+      ) : stats ? (
+        <>
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard icon={<Zap className="h-5 w-5" />} label="Active flows" value={`${stats.activeAutomations}/${stats.totalAutomations}`} />
+            <StatCard icon={<MessageCircle className="h-5 w-5" />} label="Comments received" value={String(stats.totalCommentsReceived)} />
+            <StatCard icon={<Send className="h-5 w-5" />} label="Successful sends" value={String(stats.totalSuccess)} />
+            <StatCard icon={<Activity className="h-5 w-5" />} label="Success rate" value={`${stats.successRate}%`} />
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+              <p className="text-xs font-bold uppercase tracking-wider text-fuchsia-300">DM quota</p>
+              <div className="mt-3 flex items-end justify-between gap-4">
+                <div><p className="text-3xl font-black text-white">{stats.dmsUsedThisMonth}</p><p className="text-sm text-zinc-400">of {stats.monthlyDmQuota} used</p></div>
+                <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-zinc-200">{stats.plan} · {stats.subscriptionStatus}</span>
+              </div>
+              <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-gradient-to-r from-fuchsia-500 to-amber-400" style={{ width: `${quotaPercent}%` }} /></div>
+              <Link href="/dashboard/pricing" className="mt-4 inline-block text-xs font-semibold text-fuchsia-300">Plans dekho →</Link>
+            </div>
+
+            <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                <div><p className="font-semibold text-white">Latest activity</p><p className="text-xs text-zinc-500">Recent automation executions</p></div>
+                <Link href="/dashboard/logs" className="text-xs font-semibold text-fuchsia-300">All logs →</Link>
+              </div>
+              <div className="divide-y divide-white/10">
+                {recentRuns.map((run) => (
+                  <div key={run.id} className="flex items-center gap-3 px-5 py-3 text-xs">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${run.status === 'API_ACCEPTED' ? 'bg-emerald-400' : run.status === 'FAILED' ? 'bg-rose-400' : 'bg-amber-300'}`} />
+                    <div className="min-w-0 flex-1"><p className="truncate font-medium text-zinc-200">{run.automation?.name || 'Automation'}</p><p className="truncate text-zinc-500">@{run.webhookEvent?.commenterUsername || 'unknown'} · {run.webhookEvent?.commentText || 'interaction'}</p></div>
+                    <span className="shrink-0 text-zinc-600">{new Date(run.createdAt).toLocaleDateString()}</span>
+                  </div>
+                ))}
+                {!recentRuns.length && <div className="p-8 text-center text-sm text-zinc-500"><Sparkles className="mx-auto mb-2 h-5 w-5" />Abhi koi automation activity nahi hai.</div>}
+              </div>
+            </div>
+          </section>
+        </>
       ) : null}
+    </div>
+  );
+}
 
-      {errorMessage === 'meta_connection_failed' && (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-950/40 p-5 text-sm text-rose-100">
-          Meta ne Page / Instagram account return nahi kiya. Facebook popup mein Instagram + Page dono tick karo, phir dubara connect.
-        </div>
-      )}
-
-      {!connected ? (
-        <div className="rounded-[2rem] border border-dashed border-white/15 p-12 text-center">
-          <Sparkles className="mx-auto h-8 w-8 text-fuchsia-400" />
-          <p className="mt-4 font-display text-2xl text-white">Pehle account jodo</p>
-          <p className="mt-2 text-sm text-zinc-400">Jodte hi yahi grid mein aapki last 50 posts aa jaayengi.</p>
-        </div>
-      ) : loading ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="aspect-[4/5] animate-pulse rounded-[1.4rem] bg-white/5" />
-          ))}
-        </div>
-      ) : posts.length === 0 ? (
-        <div className="rounded-[2rem] border border-white/10 p-12 text-center text-sm text-zinc-400">
-          Koi post sync nahi hui. Refresh posts dabao — Graph API se thumbnails aani chahiye.
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} onPick={setPicked} />
-          ))}
-        </div>
-      )}
-
-      {picked && (
-        <AutomationComposer
-          post={picked}
-          onClose={() => setPicked(null)}
-          onSaved={() => {
-            setPicked(null);
-            setToast('Auto-DM live. Comment aate hi flow chalega.');
-            load(false);
-          }}
-        />
-      )}
+function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+      <div className="text-fuchsia-300">{icon}</div>
+      <p className="mt-5 text-3xl font-black text-white">{value}</p>
+      <p className="mt-1 text-xs text-zinc-500">{label}</p>
     </div>
   );
 }

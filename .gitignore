@@ -39,5 +39,6 @@ yarn-error.log*
 .wrangler
 .dev.vars
 
-# TypeScript build cache
+# Generated clients and TypeScript build cache
+/src/generated/prisma/
 tsconfig.tsbuildinfo

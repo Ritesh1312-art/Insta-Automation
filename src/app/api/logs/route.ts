@@ -20,7 +20,7 @@ export async function GET() {
         orderBy: { createdAt: 'desc' },
       }),
       prisma.auditLog.findMany({
-        where: { userId: user.userId, action: { startsWith: 'POSTBACK_' } },
+        where: { userId: user.userId, action: { startsWith: 'MESSAGING_' } },
         take: 50,
         orderBy: { createdAt: 'desc' },
       }),
