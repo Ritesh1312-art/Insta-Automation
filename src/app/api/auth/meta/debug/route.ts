@@ -76,7 +76,7 @@ export async function POST() {
   try {
     await requireAdmin();
     const connections = await prisma.metaConnection.findMany({ orderBy: { createdAt: 'desc' }, take: 20 });
-    const graphApiVersion = process.env.META_GRAPH_API_VERSION || 'v19.0';
+    const graphApiVersion = process.env.META_GRAPH_API_VERSION || 'v26.0';
     const subscriptionResults: any[] = [];
 
     for (const conn of connections) {
@@ -85,7 +85,7 @@ export async function POST() {
         continue;
       }
       try {
-        const pageAccessToken = decryptToken(conn.accessTokenEncrypted);
+        const pageAccessToken = conn.accessTokenEncrypted ? decryptToken(conn.accessTokenEncrypted) : '';
         const attempts = await Promise.allSettled([
           MetaAuthService.subscribeObject(conn.facebookPageId, META_PAGE_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),
           MetaAuthService.subscribeObject(conn.instagramAccountId, META_INSTAGRAM_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),

@@ -12,6 +12,8 @@ generator client {
 model User {
   id                        String             @id @default(uuid())
   email                     String             @unique
+  sessionVersion            Int                @default(0)
+  totalCommentsReceived     Int                @default(0)
   passwordHash              String
   name                      String?
   role                      String             @default("USER")
@@ -66,7 +68,7 @@ model MetaConnection {
   facebookPageId       String?
   instagramUsername    String
   profilePictureUrl    String?
-  accessTokenEncrypted String
+  accessTokenEncrypted String?
   tokenType            String         @default("BEARER")
   scopes               String[]
   expiresAt            DateTime?
@@ -77,6 +79,7 @@ model MetaConnection {
   automations          Automation[]
   contacts             Contact[]
   webhookEvents        WebhookEvent[]
+  contactStates         AutomationContactState[]
 }
 
 model Media {
@@ -137,20 +140,25 @@ model Automation {
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
   runs                  AutomationRun[]
+  contactStates         AutomationContactState[]
 
   @@index([instagramAccountId, mediaId, status])
+  @@index([instagramAccountId, status])
 }
 
 model WebhookEvent {
   id                  String          @id @default(uuid())
   instagramAccountId  String?
-  metaConnection      MetaConnection? @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: SetNull)
+  metaConnection      MetaConnection? @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
   eventId             String?         @unique
   eventType           String // comments, messaging
   commentId           String?
   mediaId             String?
   commenterId         String?
   commenterUsername   String?
+  messagingSenderId   String?
+  messagingPayload    String?
+  interactionType     String?
   commentText         String?
   rawPayload          Json
   status              String          @default("RECEIVED") // RECEIVED, PROCESSING, PROCESSED, FAILED, IGNORED, RETRYING
@@ -166,6 +174,8 @@ model WebhookEvent {
   @@index([status, nextRetryAt])
   @@index([status, processingStartedAt])
   @@index([commentId])
+  @@index([messagingSenderId])
+  @@index([createdAt, status])
 }
 
 model AutomationRun {
@@ -213,6 +223,25 @@ model Contact {
   @@unique([instagramAccountId, igsid])
 }
 
+model AutomationContactState {
+  id                 String       @id @default(uuid())
+  automationId       String
+  instagramAccountId String
+  igsid              String
+  status             String       @default("NEW") // NEW, FOLLOW_ASKED, CLAIMED, UNLOCKED, DELIVERED
+  claimStartedAt     DateTime?
+  deliveredAt        DateTime?
+  lastCheckedAt      DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  automation         Automation   @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  metaConnection     MetaConnection @relation(fields: [instagramAccountId], references: [instagramAccountId], onDelete: Cascade)
+
+  @@unique([automationId, igsid])
+  @@index([status, claimStartedAt])
+  @@index([instagramAccountId, igsid])
+}
+
 model AuditLog {
   id        String   @id @default(uuid())
   userId    String?
@@ -221,4 +250,7 @@ model AuditLog {
   details   Json?
   ipAddress String?
   createdAt DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([userId, action, createdAt])
 }

@@ -7,7 +7,7 @@ import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 export async function POST(req: NextRequest) {
   try {
     const { email, password } = await req.json();
-    if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || email.length > 254 || !email.trim() || !password) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
+      await bcrypt.compare(password, '$2b$12$C6UzMDM.H6dfI/f/IKcEe.UYx4O6iGzYQY4qk6z9dN9l9h3dQWn9G');
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       email: user.email,
       role: user.role,
+      sessionVersion: user.sessionVersion,
     });
 
     const response = NextResponse.json({ success: true, user: { id: user.id, email: user.email, name: user.name } });

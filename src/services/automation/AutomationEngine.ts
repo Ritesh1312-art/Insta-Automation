@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import crypto from 'node:crypto';
 import { decryptToken } from '@/lib/encryption';
 import { KeywordMatcher } from './KeywordMatcher';
 import { InstagramMessagingService } from '@/services/meta/InstagramMessagingService';
@@ -22,10 +23,27 @@ function retryAt(retryCount: number) {
 
 export class AutomationEngine {
   public static async ingestCommentEvent(payload: CommentEventPayload) {
-    const eventId = `${payload.instagramAccountId}:${payload.commentId}`;
+    const eventId = `comment:${payload.instagramAccountId}:${payload.commentId}`;
+    try {
+      const created = await prisma.webhookEvent.create({
+        data: { instagramAccountId: payload.instagramAccountId, mediaId: payload.mediaId, commentId: payload.commentId, commenterId: payload.commenterId, commenterUsername: payload.commenterUsername, commentText: payload.commentText, rawPayload: { eventId, eventType: 'comments' }, eventId, eventType: 'comments', status: 'RECEIVED' },
+      });
+      const connection = await prisma.metaConnection.findFirst({ where: { instagramAccountId: payload.instagramAccountId }, select: { userId: true } });
+      if (connection) await prisma.user.update({ where: { id: connection.userId }, data: { totalCommentsReceived: { increment: 1 } } });
+      return created;
+    } catch (error: any) {
+      if (error?.code === 'P2002') return prisma.webhookEvent.findUniqueOrThrow({ where: { eventId } });
+      throw error;
+    }
+  }
+
+  public static async ingestMessagingEvent(payload: { instagramAccountId: string; senderId: string; postbackPayload: string; interactionType?: 'POSTBACK' | 'QUICK_REPLY' | 'TEXT'; rawPayload: unknown; eventId?: string }) {
+    const digest = crypto.createHash('sha256').update(`${payload.instagramAccountId}:${payload.senderId}:${payload.postbackPayload}:${payload.interactionType || 'TEXT'}`).digest('hex');
+    const eventId = `msg:${payload.eventId || digest}`;
+    // Deliberately retain only the actionable token and identifiers, never a full DM body.
     return prisma.webhookEvent.upsert({
       where: { eventId },
-      create: { ...payload, rawPayload: payload.rawPayload as object, eventId, eventType: 'comments', status: 'RECEIVED' },
+      create: { eventId, eventType: 'messaging', instagramAccountId: payload.instagramAccountId, messagingSenderId: payload.senderId, messagingPayload: payload.postbackPayload.slice(0, 160), interactionType: payload.interactionType || 'TEXT', rawPayload: { eventId } as object, status: 'RECEIVED' },
       update: {},
     });
   }
@@ -65,7 +83,7 @@ export class AutomationEngine {
     }
 
     const realIgAccountId = connection.instagramAccountId;
-    const accessToken = decryptToken(connection.accessTokenEncrypted);
+    const accessToken = connection.accessTokenEncrypted ? decryptToken(connection.accessTokenEncrypted) : '';
     let resolvedMediaId = event.mediaId;
     let resolvedCommentText = event.commentText || '';
     let resolvedCommenterId = event.commenterId;
@@ -145,6 +163,13 @@ export class AutomationEngine {
 
     let dm;
     if (automation.followGateEnabled) {
+      // Eligibility exists before Meta is called, so a crash cannot leave a
+      // successful welcome DM with an unusable copied-button token.
+      if ((prisma as any).automationContactState) await prisma.automationContactState.upsert({
+        where: { automationId_igsid: { automationId: automation.id, igsid: resolvedCommenterId } },
+        create: { automationId: automation.id, instagramAccountId: realIgAccountId, igsid: resolvedCommenterId, status: 'NEW' },
+        update: { status: 'NEW', updatedAt: new Date() },
+      });
       dm = await FollowGateService.sendAccessWelcome({
         mode: 'comment',
         commentId: event.commentId,
@@ -265,6 +290,16 @@ export class AutomationEngine {
     return { status: 'FAILED', message, automationRunId: runId };
   }
 
+  public static async processMessagingEvent(eventId: string): Promise<Result> {
+    const claimed = await prisma.webhookEvent.updateMany({ where: { id: eventId, status: 'RECEIVED' }, data: { status: 'PROCESSING', processingStartedAt: new Date() } });
+    if (!claimed.count) return { status: 'IGNORED', message: 'Messaging event already claimed' };
+    const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
+    if (!event?.instagramAccountId || !event.messagingSenderId || !event.messagingPayload) return this.finishEvent(eventId, 'IGNORED', 'Incomplete messaging event');
+    const result = await this.processMessagingPostback({ instagramAccountId: event.instagramAccountId, senderId: event.messagingSenderId, postbackPayload: event.messagingPayload, interactionType: (event.interactionType as any) || 'TEXT', rawPayload: {} });
+    await prisma.webhookEvent.update({ where: { id: eventId }, data: { status: result.status === 'FAILED' ? 'FAILED' : result.status, processedAt: new Date(), processingStartedAt: null, errorDetails: result.status === 'FAILED' ? result.message : null } });
+    return result;
+  }
+
   public static async processMessagingPostback(payload: {
     instagramAccountId: string;
     senderId: string;
@@ -334,7 +369,7 @@ export class AutomationEngine {
 
       auditUserId = connection.userId;
       const realInstagramAccountId = connection.instagramAccountId;
-      const accessToken = decryptToken(connection.accessTokenEncrypted);
+      const accessToken = connection.accessTokenEncrypted ? decryptToken(connection.accessTokenEncrypted) : '';
       const igUsername = connection.instagramUsername || 'instagram';
       const contactHint = await prisma.contact.findUnique({
         where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
@@ -359,7 +394,11 @@ export class AutomationEngine {
       if (!automation || automation.status !== 'ACTIVE') {
         return finish({ status: 'IGNORED', message: 'Automation not found or inactive' });
       }
-      if (interactionType === 'TEXT' && (!contactHint || contactHint.lastAutomationId !== automation.id)) {
+      const automationState = (prisma as any).automationContactState ? await prisma.automationContactState.findUnique({ where: { automationId_igsid: { automationId: automation.id, igsid: senderId } } }) : contactHint;
+      if ((interactionType === 'POSTBACK' || interactionType === 'QUICK_REPLY') && !automationState) {
+        return finish({ status: 'IGNORED', message: 'Unknown or copied button payload' });
+      }
+      if (interactionType === 'TEXT' && (!automationState || !contactHint || contactHint.lastAutomationId !== automation.id)) {
         return finish({ status: 'IGNORED', message: 'No active follow-gate conversation for this message' });
       }
 
@@ -402,17 +441,10 @@ export class AutomationEngine {
 
       const deliverResource = async (): Promise<Result> => {
         if (automation.followGateEnabled) {
-          const deliveryClaim = await prisma.contact.updateMany({
-            where: {
-              id: contact.id,
-              followGateStatus: { in: ['NEW', 'FOLLOW_ASKED', 'UNLOCKED'] },
-              promptSentAt: null,
-            },
-            data: { followGateStatus: 'CLAIMED', claimedFollowAt: new Date() },
-          });
-          if (deliveryClaim.count !== 1) {
-            return finish({ status: 'IGNORED', message: 'Resource delivery is already processing or complete' });
-          }
+          const deliveryClaim = (prisma as any).automationContactState
+            ? await prisma.automationContactState.updateMany({ where: { automationId: automation.id, igsid: senderId, OR: [{ status: { in: ['NEW', 'FOLLOW_ASKED', 'UNLOCKED'] } }, { status: 'CLAIMED', claimStartedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }] }, data: { status: 'CLAIMED', claimStartedAt: new Date(), lastCheckedAt: new Date() } })
+            : await prisma.contact.updateMany({ where: { id: contact.id, followGateStatus: { in: ['NEW', 'FOLLOW_ASKED', 'UNLOCKED'] }, promptSentAt: null }, data: { followGateStatus: 'CLAIMED', claimedFollowAt: new Date() } });
+          if (deliveryClaim.count !== 1) return finish({ status: 'IGNORED', message: 'Resource delivery is already processing or complete' });
         }
 
         const dm = await FollowGateService.sendResource({
@@ -444,6 +476,7 @@ export class AutomationEngine {
           followed: automation.followGateEnabled,
           delivered: true,
         });
+        if ((prisma as any).automationContactState) await prisma.automationContactState.update({ where: { automationId_igsid: { automationId: automation.id, igsid: senderId } }, data: { status: 'DELIVERED', deliveredAt: new Date(), claimStartedAt: null, lastCheckedAt: new Date() } });
         await prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } });
         if (automation.followGateEnabled) {
           await prisma.auditLog.create({

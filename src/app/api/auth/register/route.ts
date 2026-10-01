@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     });
 
     await sendWelcomeEmail(user.email, user.name);
-    const token = await signToken({ userId: user.id, email: user.email, role: user.role });
+    const token = await signToken({ userId: user.id, email: user.email, role: user.role, sessionVersion: user.sessionVersion });
     const response = NextResponse.json({ success: true, user: { id: user.id, email: user.email, name: user.name } }, { status: 201 });
     response.cookies.set('auth_token', token, {
       httpOnly: true,

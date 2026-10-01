@@ -25,23 +25,17 @@ export async function POST(req: NextRequest) {
     const commentEvents = WebhookService.parseCommentEvents(parsedBody);
     const storedComments = await Promise.all(commentEvents.map((event) => AutomationEngine.ingestCommentEvent(event)));
     after(async () => {
-      await Promise.allSettled(storedComments.map((event) => AutomationEngine.processWebhookEvent(event.id)));
+      await Promise.allSettled(storedComments.map((event: { id: string }) => AutomationEngine.processWebhookEvent(event.id)));
     });
 
-    // Button/text follow-gate actions are processed before acknowledging the
-    // webhook. Unlike comments they are not reconstructable from a scheduled
-    // retry queue, so background-only execution could lose a button click.
+    // Persist actionable messaging events before acknowledgement. Only the
+    // action token is retained; ordinary conversations are intentionally ignored.
     const messagingEvents = WebhookService.parseMessagingEvents(parsedBody);
-    const messagingResults = await Promise.all(
-      messagingEvents.map((event) => AutomationEngine.processMessagingPostback(event)),
-    );
-
-    return NextResponse.json({
-      status: 'RECEIVED',
-      commentEventCount: storedComments.length,
-      messagingEventCount: messagingEvents.length,
-      messagingProcessedCount: messagingResults.filter((result) => result.status === 'PROCESSED').length,
+    const storedMessaging = await Promise.all(messagingEvents.map((event) => AutomationEngine.ingestMessagingEvent(event)));
+    after(async () => {
+      await Promise.allSettled(storedMessaging.map((event: { id: string }) => AutomationEngine.processMessagingEvent(event.id)));
     });
+    return NextResponse.json({ status: 'RECEIVED', commentEventCount: storedComments.length, messagingEventCount: storedMessaging.length });
   } catch (error) {
     console.error('Meta webhook receiver error:', error);
     return NextResponse.json({ error: 'Unable to receive webhook' }, { status: 500 });

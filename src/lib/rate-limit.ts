@@ -8,8 +8,8 @@ function digest(value: string) {
 export function requestFingerprint(request: Request, discriminator = '') {
   const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   const address = forwarded || request.headers.get('cf-connecting-ip') || request.headers.get('x-real-ip') || 'unknown';
-  const agent = request.headers.get('user-agent')?.slice(0, 160) || 'unknown';
-  return digest(`${address}|${agent}|${discriminator.toLowerCase().trim()}`);
+  // User-Agent is intentionally excluded: it is mutable and creates privacy leaks.
+  return digest(`${address}|${discriminator.toLowerCase().trim()}`);
 }
 
 /** Database-backed limiter that works across serverless/Worker instances. */
@@ -20,7 +20,7 @@ export async function consumeRateLimit(params: {
   windowMs: number;
 }) {
   const since = new Date(Date.now() - params.windowMs);
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     // Serialize a given action/fingerprint window so parallel requests cannot all
     // pass the count before any of them records its attempt.
     const lockKey = `${params.action}:${params.fingerprint}`;

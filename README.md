@@ -105,3 +105,9 @@ The test suite exercises signed webhook parsing, OAuth/session separation, encry
 ## Live certification boundary
 
 A successful build proves code/package readiness; it does **not** prove external services are correctly provisioned. Before taking payments or enabling automations, complete [PRODUCTION_CHECKLIST.md](./PRODUCTION_CHECKLIST.md) with the real production Postgres database, Meta professional account/app review, webhook delivery, UPI settlement account, and any Telegram/SMTP integrations. Never activate a paid plan until its UTR is visibly credited in the bank/UPI app.
+
+## Operations and privacy
+
+`META_GRAPH_API_VERSION` defaults to `v26.0` and should be pinned in production. SMTP is optional for notices but required for OTP password recovery; recovery returns 503 when SMTP is unavailable. Configure `APP_URL` and `CRON_SECRET` for the five-minute scheduler. The health endpoint is `/api/health`, and the authenticated worker is `/api/jobs/process-webhooks`.
+
+Only actionable follow-gate events are retained. Webhook retention is 30 days for processed/ignored events and 90 days for failed events; audit and rate-limit retention is handled by the worker.

@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
         accessTokenEncrypted: encryptToken(account.accessToken),
         scopes: [...META_OAUTH_SCOPES],
         expiresAt,
-        connectionStatus: 'CONNECTED',
+        connectionStatus: account.webhookSubscriptionWarnings?.length ? 'ERROR' : 'CONNECTED',
       },
       update: {
         userId,
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
         accessTokenEncrypted: encryptToken(account.accessToken),
         scopes: [...META_OAUTH_SCOPES],
         expiresAt,
-        connectionStatus: 'CONNECTED',
+        connectionStatus: account.webhookSubscriptionWarnings?.length ? 'ERROR' : 'CONNECTED',
       },
     });
 

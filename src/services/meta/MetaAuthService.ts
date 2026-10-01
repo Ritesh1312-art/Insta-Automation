@@ -24,14 +24,14 @@ export interface ConnectedInstagramAccount {
 }
 
 async function graphJson(url: string, init?: RequestInit) {
-  const response = await fetch(url, { ...init, cache: 'no-store' });
+  const response = await fetch(url, { ...init, cache: 'no-store', signal: init?.signal || AbortSignal.timeout(12_000) });
   const data = await response.json();
   return { response, data };
 }
 
 export class MetaAuthService {
   private static get config() {
-    const graphApiVersion = process.env.META_GRAPH_API_VERSION;
+    const graphApiVersion = process.env.META_GRAPH_API_VERSION || 'v26.0';
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
     if (!graphApiVersion || !/^v\d+\.\d+$/.test(graphApiVersion) || !appId || !appSecret) {

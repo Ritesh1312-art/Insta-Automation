@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     const user = await prisma.user.findUnique({ where: { id: session.userId } });
     if (!user) return NextResponse.json({ error: 'User account not found' }, { status: 404 });
 
-    const payment = await prisma.$transaction(async (tx) => {
+    const payment = await prisma.$transaction(async (tx: any) => {
       // Serialize submissions for this user. This prevents two simultaneous
       // requests with different UTRs from creating multiple pending reviews.
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${user.id} FOR UPDATE`;

@@ -98,3 +98,11 @@ Instagram does not expose a reliable follow-verification webhook here. Certifica
 - [ ] A rollback procedure includes application rollback, database compatibility assessment, and Meta webhook disable/disconnect steps.
 
 Only after every applicable box is evidenced should the live integration be described as production-certified.
+
+## Before production
+
+- [ ] Set and pin `META_GRAPH_API_VERSION=v26.0`.
+- [ ] Configure SMTP (required for OTP recovery), `CRON_SECRET`, `APP_URL`, and PostgreSQL.
+- [ ] Verify Meta subscriptions for both Page and Instagram objects.
+- [ ] Run migration against a disposable PostgreSQL database and test partial unique indexes.
+- [ ] Exercise Meta, Telegram, UPI, SMTP, and scheduler integrations with live sandbox credentials; automated tests are not certification.
