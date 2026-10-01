@@ -106,3 +106,35 @@ Only after every applicable box is evidenced should the live integration be desc
 - [ ] Verify Meta subscriptions for both Page and Instagram objects.
 - [ ] Run migration against a disposable PostgreSQL database and test partial unique indexes.
 - [ ] Exercise Meta, Telegram, UPI, SMTP, and scheduler integrations with live sandbox credentials; automated tests are not certification.
+
+## Operational verification log
+
+### 2026-10-01 — Arena session `arena/01a0f718-insta-automation`
+
+Attempted the full operational runbook (PR merge → migrate → deploy → health/webhook/scheduler/SMTP/monitoring checks → restore drill). Recorded here are only actions actually executed in this sandbox, with no secret values printed.
+
+**GitHub / PR**
+- `arena/01a0f718-insta-automation` has no diff from `main` (`git diff main HEAD` is empty) and no open PR — there is nothing on this branch to merge.
+- `gh pr list --state open` shows exactly one open PR repo-wide: **#6** `fix: recognize updated Telegram bot destination rejection` (branch `arena/01a0ccda-insta-automation`, unrelated to this session).
+  - `statusCheckRollup`: Vercel check = **FAILURE** (2026-09-23T06:03Z). A required check is not green.
+  - PR **#8**'s own description documents that it already carried PR #6's substantive fix (the TDLib rejection-wording comment) forward onto `main` while fixing a merge conflict; PR #8 is merged. PR #6 therefore appears superseded in addition to failing its check.
+  - **Action taken: did not merge PR #6** (failing required check; not on the assigned branch; appears superseded). No PR existed to merge/update on the assigned branch. No PR was opened because no code change was needed this run.
+
+**Environment / deploy / database / SMTP / monitoring**
+- This sandbox has no Vercel/Cloudflare session (`vercel whoami` → "Logged out"; `wrangler whoami` → "not authenticated"), no `DATABASE_URL`/`APP_URL`/`CRON_SECRET`/SMTP/monitoring-provider variables set, and `gh secret list` is not accessible to this token (HTTP 403). The repo also has no `.github/workflows`, so there is no CI-side place those secrets could be exercised either.
+- The task brief's "non-secret deployment information" (hosting provider, production URL, database provider, monitoring provider) was supplied as unfilled template placeholders, so there is no concrete production target to point any of these commands at.
+- Ran `npm run env:check` locally with no environment loaded, purely to confirm the validator itself works: it correctly fails closed, listing only field *names* that are missing/invalid, never values (see command output below). This is **not** a verification of the real production configuration — that requires running the same command inside the actual hosting platform's environment (Vercel/Cloudflare build or an authenticated shell), which this sandbox cannot reach.
+
+  ```
+  $ npm run env:check
+  Environment validation failed:
+  - DATABASE_URL is required
+  - APP_URL is required
+  ... (all other required keys listed by name only)
+  ```
+
+- **Not executed (blocked, no credentials/target in this sandbox):** production backup creation/verification, `npm run db:deploy` against production, production deploy, `/api/health` and page/API checks against a live URL, Meta Page/Instagram webhook subscription check, five-minute cron scheduler configuration/test, SMTP send test, monitoring alert configuration, and the staging restore drill.
+
+**Why stopped here:** per the safety rules for this task ("stop and report clearly if required platform access is unavailable" and "confirm a verified backup exists before applying production migrations"), none of steps 3–12 were simulated or marked complete without real access. No destructive command was run against any database.
+
+**Still required from the user/operator:** supply (via the hosting/database/monitoring platforms directly, not in chat) a reachable production `APP_URL`, `DATABASE_URL`, SMTP, and monitoring-provider access so these steps can be executed and evidenced in a follow-up run; confirm whether PR #6 should be closed as superseded/failing.
