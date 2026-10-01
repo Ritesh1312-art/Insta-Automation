@@ -27,12 +27,17 @@ function classifyError(data: any, status?: number): ApiResponse {
 
 export class InstagramMessagingService {
   private static get version(): string {
-    const version = process.env.META_GRAPH_API_VERSION;
-    if (!version || !/^v\d+\.\d+$/.test(version)) throw new Error('META_GRAPH_API_VERSION is required');
-    return version;
+    const configured = process.env.META_GRAPH_API_VERSION || 'v26.0';
+    if (!/^v\d+\.\d+$/.test(configured)) throw new Error('META_GRAPH_API_VERSION must be a version such as v26.0');
+    return configured;
   }
 
   private static async send(targetId: string, body: Record<string, unknown>, accessToken: string): Promise<ApiResponse> {
+    const text = typeof (body.message as Record<string, unknown> | undefined)?.text === 'string'
+      ? (body.message as Record<string, unknown>).text as string : null;
+    if (text !== null && Buffer.byteLength(text, 'utf8') > 1000) {
+      return { success: false, errorCategory: 'VALIDATION', errorMessage: 'Meta message exceeds the 1,000-byte UTF-8 limit' };
+    }
     try {
       const response = await fetch(
         `https://graph.facebook.com/${this.version}/${encodeURIComponent(targetId)}/messages`,
@@ -154,7 +159,7 @@ export class InstagramMessagingService {
   }): Promise<ApiResponse> {
     return this.send(
       payload.instagramAccountId || 'me',
-      { recipient: { id: payload.recipientId }, message: { text: payload.messageText } },
+      { messaging_type: 'RESPONSE', recipient: { id: payload.recipientId }, message: { text: payload.messageText } },
       payload.accessToken,
     );
   }
@@ -167,7 +172,7 @@ export class InstagramMessagingService {
   }): Promise<ApiResponse> {
     return this.send(
       payload.instagramAccountId || 'me',
-      { recipient: { id: payload.recipientId }, message: payload.templatePayload },
+      { messaging_type: 'RESPONSE', recipient: { id: payload.recipientId }, message: payload.templatePayload },
       payload.accessToken,
     );
   }

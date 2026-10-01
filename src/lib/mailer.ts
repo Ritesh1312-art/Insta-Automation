@@ -10,6 +10,8 @@ type Mail = {
   html?: string;
 };
 
+export function isTransactionalEmailConfigured(): boolean { return smtpConfig() !== null; }
+
 function smtpConfig() {
   const host = (process.env.SMTP_HOST || '').trim();
   const port = Number.parseInt(process.env.SMTP_PORT || '', 10);

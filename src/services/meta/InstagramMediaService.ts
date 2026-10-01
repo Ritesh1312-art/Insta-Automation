@@ -37,8 +37,8 @@ export function resolveDisplayUrls(item: InstagramMediaItem): { mediaUrl: string
 
 export class InstagramMediaService {
   public static async fetchMedia(instagramAccountId: string, accessToken: string): Promise<InstagramMediaItem[]> {
-    const version = process.env.META_GRAPH_API_VERSION;
-    if (!version || !accessToken) throw new Error('Meta Graph API is not configured');
+    const version = process.env.META_GRAPH_API_VERSION || 'v26.0';
+    if (!accessToken) throw new Error('Meta Graph API is not configured');
     const fields = [
       'id',
       'media_type',
@@ -65,6 +65,7 @@ export class InstagramMediaService {
       const response: Response = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: 'no-store',
+        signal: AbortSignal.timeout(12_000),
       });
       const data: any = await response.json();
       if (!response.ok) {

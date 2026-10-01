@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import { prisma } from '@/lib/prisma';
 
 const ISSUER = 'instadm-auto';
 const SESSION_AUDIENCE = 'instadm-session';
@@ -10,6 +11,7 @@ export interface JWTPayload {
   userId: string;
   email: string;
   role: string;
+  sessionVersion?: number;
 }
 
 function authKey() {
@@ -26,7 +28,8 @@ function isSessionPayload(payload: Record<string, unknown>): payload is Record<s
     && typeof payload.email === 'string'
     && payload.email.length > 0
     && typeof payload.role === 'string'
-    && payload.role.length > 0;
+    && payload.role.length > 0
+    && (payload.sessionVersion === undefined || (typeof payload.sessionVersion === 'number' && Number.isInteger(payload.sessionVersion) && payload.sessionVersion >= 0));
 }
 
 export async function signToken(payload: JWTPayload): Promise<string> {
@@ -48,7 +51,7 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
       audience: SESSION_AUDIENCE,
     });
     if (payload.purpose !== 'session' || !isSessionPayload(payload)) return null;
-    return { userId: payload.userId, email: payload.email, role: payload.role };
+    return { userId: payload.userId, email: payload.email, role: payload.role, sessionVersion: typeof payload.sessionVersion === 'number' ? payload.sessionVersion : 0 };
   } catch {
     return null;
   }
@@ -63,7 +66,9 @@ export async function getSessionUser(): Promise<JWTPayload | null> {
 export async function requireSessionUser(): Promise<JWTPayload> {
   const user = await getSessionUser();
   if (!user) throw new Error('UNAUTHORIZED');
-  return user;
+  const current = await prisma.user.findUnique({ where: { id: user.userId }, select: { email: true, role: true, sessionVersion: true } });
+  if (!current || (current.sessionVersion !== (user.sessionVersion ?? 0))) throw new Error('UNAUTHORIZED');
+  return { ...user, email: current.email, role: current.role, sessionVersion: current.sessionVersion };
 }
 
 export async function createOAuthState(userId: string): Promise<string> {

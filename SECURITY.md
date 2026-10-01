@@ -28,3 +28,7 @@ Implemented controls include signed, purpose-bound session/OAuth tokens; authent
 - Treat usernames, comments, email addresses, UPI identifiers, UTRs, IP-derived fingerprints, and webhook payloads as sensitive data. Define retention/deletion periods and restrict database/log access.
 
 See [PRODUCTION_CHECKLIST.md](./PRODUCTION_CHECKLIST.md) before launch.
+
+## Operational controls
+
+Meta webhook signatures are checked before JSON parsing. Session tokens are invalidated by `sessionVersion`; reset operations increment it. Secrets and access tokens are encrypted or environment-only and are excluded from API projections. OTP recovery requires configured SMTP.

@@ -37,8 +37,9 @@ export async function POST(req: NextRequest) {
         userId: user.userId,
         name: name.trim(),
         type,
-        url: typeof url === 'string' ? url.trim() : null,
-        textContent: typeof textContent === 'string' ? textContent.trim() : null,
+        // Type is authoritative: never persist unused fields supplied by clients.
+        url: type === 'TEXT' ? null : (typeof url === 'string' ? url.trim() : null),
+        textContent: type === 'TEXT' ? (typeof textContent === 'string' ? textContent.trim() : null) : null,
       },
     });
     return NextResponse.json({ resource }, { status: 201 });

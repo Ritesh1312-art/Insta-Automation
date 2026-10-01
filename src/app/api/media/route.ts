@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
     if (sync) {
       try {
-        const token = decryptToken(connection.accessTokenEncrypted);
+        const token = connection.accessTokenEncrypted ? decryptToken(connection.accessTokenEncrypted) : '';
         const remoteMedia = await InstagramMediaService.fetchMedia(connection.instagramAccountId, token);
         for (const item of remoteMedia) {
           const { mediaUrl, thumbnailUrl } = resolveDisplayUrls(item);

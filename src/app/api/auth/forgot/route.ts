@@ -2,7 +2,7 @@ import { randomInt } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { sendPasswordResetOtpEmail } from '@/lib/mailer';
+import { isTransactionalEmailConfigured, sendPasswordResetOtpEmail } from '@/lib/mailer';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
 import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
 
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const action = body.action;
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
 
-    if (!/^\S+@\S+\.\S+$/.test(email)) {
+    if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) {
       return NextResponse.json({ error: 'Enter a valid email address' }, { status: 400 });
     }
 
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'REQUEST_OTP') {
+      if (!isTransactionalEmailConfigured()) return NextResponse.json({ error: 'Password recovery is temporarily unavailable' }, { status: 503 });
       const user = await prisma.user.findUnique({ where: { email } });
       const genericMessage = 'If an account exists, a verification code has been sent to its registered email.';
       if (!user) return NextResponse.json({ success: true, message: genericMessage });
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
       });
 
       const mail = await sendPasswordResetOtpEmail(email, generatedOtp);
-      if (!mail.sent) console.error('Password reset email could not be sent:', mail.reason);
+      if (!mail.sent) return NextResponse.json({ error: 'Password recovery is temporarily unavailable' }, { status: 503 });
       return NextResponse.json({ success: true, message: genericMessage });
     }
 
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
       await prisma.$transaction([
         prisma.user.update({
           where: { id: user.id },
-          data: { passwordHash: await bcrypt.hash(newPassword, 12) },
+          data: { passwordHash: await bcrypt.hash(newPassword, 12), sessionVersion: { increment: 1 } },
         }),
         prisma.auditLog.delete({ where: { id: activeLog.id } }),
         prisma.auditLog.create({ data: { userId: user.id, action: 'PASSWORD_RESET_COMPLETED' } }),
