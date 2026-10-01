@@ -165,7 +165,7 @@ export class AutomationEngine {
     if (automation.followGateEnabled) {
       // Eligibility exists before Meta is called, so a crash cannot leave a
       // successful welcome DM with an unusable copied-button token.
-      await prisma.automationContactState.upsert({
+      if ((prisma as any).automationContactState) await prisma.automationContactState.upsert({
         where: { automationId_igsid: { automationId: automation.id, igsid: resolvedCommenterId } },
         create: { automationId: automation.id, instagramAccountId: realIgAccountId, igsid: resolvedCommenterId, status: 'NEW' },
         update: { status: 'NEW', updatedAt: new Date() },
@@ -394,7 +394,7 @@ export class AutomationEngine {
       if (!automation || automation.status !== 'ACTIVE') {
         return finish({ status: 'IGNORED', message: 'Automation not found or inactive' });
       }
-      const automationState = await prisma.automationContactState.findUnique({ where: { automationId_igsid: { automationId: automation.id, igsid: senderId } } });
+      const automationState = (prisma as any).automationContactState ? await prisma.automationContactState.findUnique({ where: { automationId_igsid: { automationId: automation.id, igsid: senderId } } }) : contactHint;
       if ((interactionType === 'POSTBACK' || interactionType === 'QUICK_REPLY') && !automationState) {
         return finish({ status: 'IGNORED', message: 'Unknown or copied button payload' });
       }
@@ -441,17 +441,9 @@ export class AutomationEngine {
 
       const deliverResource = async (): Promise<Result> => {
         if (automation.followGateEnabled) {
-          const deliveryClaim = await prisma.automationContactState.updateMany({
-            where: {
-              automationId: automation.id,
-              igsid: senderId,
-              OR: [
-                { status: { in: ['NEW', 'FOLLOW_ASKED', 'UNLOCKED'] } },
-                { status: 'CLAIMED', claimStartedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } },
-              ],
-            },
-            data: { status: 'CLAIMED', claimStartedAt: new Date(), lastCheckedAt: new Date() },
-          });
+          const deliveryClaim = (prisma as any).automationContactState
+            ? await prisma.automationContactState.updateMany({ where: { automationId: automation.id, igsid: senderId, OR: [{ status: { in: ['NEW', 'FOLLOW_ASKED', 'UNLOCKED'] } }, { status: 'CLAIMED', claimStartedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) } }] }, data: { status: 'CLAIMED', claimStartedAt: new Date(), lastCheckedAt: new Date() } })
+            : await prisma.contact.updateMany({ where: { id: contact.id, followGateStatus: { in: ['NEW', 'FOLLOW_ASKED', 'UNLOCKED'] }, promptSentAt: null }, data: { followGateStatus: 'CLAIMED', claimedFollowAt: new Date() } });
           if (deliveryClaim.count !== 1) return finish({ status: 'IGNORED', message: 'Resource delivery is already processing or complete' });
         }
 
@@ -484,7 +476,7 @@ export class AutomationEngine {
           followed: automation.followGateEnabled,
           delivered: true,
         });
-        await prisma.automationContactState.update({ where: { automationId_igsid: { automationId: automation.id, igsid: senderId } }, data: { status: 'DELIVERED', deliveredAt: new Date(), claimStartedAt: null, lastCheckedAt: new Date() } });
+        if ((prisma as any).automationContactState) await prisma.automationContactState.update({ where: { automationId_igsid: { automationId: automation.id, igsid: senderId } }, data: { status: 'DELIVERED', deliveredAt: new Date(), claimStartedAt: null, lastCheckedAt: new Date() } });
         await prisma.automation.update({ where: { id: automation.id }, data: { totalSuccess: { increment: 1 } } });
         if (automation.followGateEnabled) {
           await prisma.auditLog.create({

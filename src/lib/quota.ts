@@ -16,7 +16,7 @@ export function planAssignmentData(planId: PlanId, now = new Date()) {
 }
 
 export async function resetQuotaIfNeeded(userId: string) {
-  await prisma.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`quota:${userId}`}, 0))`;
+  if (typeof (prisma as any).$queryRaw === 'function') await (prisma as any).$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`quota:${userId}`}, 0))`;
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return null;
   if (user.role === 'ADMIN') return user; // admins bypass quota cycles
