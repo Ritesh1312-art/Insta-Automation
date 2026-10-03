@@ -5,6 +5,7 @@ import { KeywordMatcher } from './KeywordMatcher';
 import { InstagramMessagingService } from '@/services/meta/InstagramMessagingService';
 import { FollowGateService, isFollowRetryText, parseButtonPayload } from './FollowGateService';
 import { assertDmQuota, releaseDmQuota, reserveDmQuota } from '@/lib/quota';
+import { redactSecrets, safeErrorMessage } from '@/lib/safe-error';
 
 export interface CommentEventPayload {
   instagramAccountId: string;
@@ -16,6 +17,18 @@ export interface CommentEventPayload {
   rawPayload: unknown;
 }
 type Result = { status: 'PROCESSED' | 'IGNORED' | 'FAILED'; message: string; automationRunId?: string };
+
+/** What a comment-processing attempt has done so far; drives safe failure recovery. */
+type CommentAttempt = {
+  /** Values that must never be logged or stored (the decrypted access token). */
+  secrets: string[];
+  runId?: string;
+  automationId?: string;
+  /** Meta accepted the private reply, so a retry could send a duplicate DM. */
+  dmAccepted: boolean;
+};
+
+const MAX_RETRIES = 5;
 
 function retryAt(retryCount: number) {
   return new Date(Date.now() + Math.min(60 * 60 * 1000, 30_000 * 2 ** retryCount));
@@ -66,6 +79,18 @@ export class AutomationEngine {
       data: { status: 'PROCESSING', processingStartedAt: new Date() },
     });
     if (claimed.count === 0) return { status: 'IGNORED', message: 'Webhook event is already being processed or completed' };
+
+    const attempt: CommentAttempt = { secrets: [], dmAccepted: false };
+    try {
+      return await this.processClaimedCommentEvent(eventId, attempt);
+    } catch (error) {
+      // Without this, an unexpected error (e.g. a database failure) left the
+      // event silently stuck in PROCESSING with no reply and no visible error.
+      return this.recordUnexpectedFailure(eventId, attempt, error);
+    }
+  }
+
+  private static async processClaimedCommentEvent(eventId: string, attempt: CommentAttempt): Promise<Result> {
     const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
     if (!event?.instagramAccountId || !event.mediaId || !event.commentId || !event.commenterId || event.commentText === null) {
       return this.finishEvent(eventId, 'IGNORED', 'Incomplete comment event');
@@ -84,6 +109,7 @@ export class AutomationEngine {
 
     const realIgAccountId = connection.instagramAccountId;
     const accessToken = connection.accessTokenEncrypted ? decryptToken(connection.accessTokenEncrypted) : '';
+    attempt.secrets.push(accessToken);
     let resolvedMediaId = event.mediaId;
     let resolvedCommentText = event.commentText || '';
     let resolvedCommenterId = event.commenterId;
@@ -159,6 +185,8 @@ export class AutomationEngine {
         run = await prisma.automationRun.update({ where: { id: existingRun.id }, data: { status: 'PROCESSING', nextRetryAt: null } });
       } else throw error;
     }
+    attempt.runId = run.id;
+    attempt.automationId = automation.id;
     if (isNewRun) await prisma.automation.update({ where: { id: automation.id }, data: { totalTriggers: { increment: 1 }, lastTriggeredAt: new Date() } });
 
     let dm;
@@ -198,8 +226,9 @@ export class AutomationEngine {
     }
 
     if (!dm.success) {
-      return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed');
+      return this.failRun(event, run.id, automation.id, dm.errorCategory, dm.errorMessage || 'Private reply failed', attempt.secrets);
     }
+    attempt.dmAccepted = true;
 
     // Public replies are attempted only after a DM is accepted. A DM retry can
     // therefore never spam the same public comment with repeated replies.
@@ -272,10 +301,19 @@ export class AutomationEngine {
     return { status, message };
   }
 
-  private static async failRun(event: any, runId: string, automationId: string, category: string | undefined, message: string): Promise<Result> {
+  private static async failRun(
+    event: { id: string; retryCount: number },
+    runId: string,
+    automationId: string,
+    category: string | undefined,
+    rawMessage: string,
+    secrets: string[] = [],
+  ): Promise<Result> {
+    // Stored messages are shown in the dashboard: never persist credentials.
+    const message = redactSecrets(rawMessage, secrets).slice(0, 500);
     const retryable = category === 'TRANSIENT' || category === 'RATE_LIMIT';
     const retryCount = event.retryCount + 1;
-    const retriesLeft = retryable && retryCount <= 5;
+    const retriesLeft = retryable && retryCount <= MAX_RETRIES;
     await prisma.$transaction([
       prisma.automationRun.update({
         where: { id: runId },
@@ -288,6 +326,57 @@ export class AutomationEngine {
       }),
     ]);
     return { status: 'FAILED', message, automationRunId: runId };
+  }
+
+  /**
+   * Records an unexpected exception from a claimed comment event: a safe,
+   * token-free log line plus a visible error on the event (and run), with the
+   * usual bounded retry schedule. Retrying is safe because the AutomationRun
+   * idempotency key prevents duplicate deliveries; once Meta has accepted the
+   * DM the event is never retried.
+   */
+  private static async recordUnexpectedFailure(eventId: string, attempt: CommentAttempt, error: unknown): Promise<Result> {
+    const message = `Unexpected processing error: ${safeErrorMessage(error, attempt.secrets)}`;
+    console.error('[automation] comment event processing failed', {
+      eventId,
+      automationRunId: attempt.runId ?? null,
+      dmAccepted: attempt.dmAccepted,
+      error: message,
+    });
+    try {
+      const event = await prisma.webhookEvent.findUnique({ where: { id: eventId }, select: { id: true, retryCount: true } });
+      if (!event) return { status: 'FAILED', message, automationRunId: attempt.runId };
+      if (attempt.dmAccepted) {
+        await prisma.webhookEvent.update({
+          where: { id: eventId },
+          data: { status: 'FAILED', errorDetails: message, nextRetryAt: null, processedAt: new Date(), processingStartedAt: null },
+        });
+        return { status: 'FAILED', message, automationRunId: attempt.runId };
+      }
+      if (attempt.runId && attempt.automationId) {
+        // Marks the run RETRYING so the idempotent retry path may resume it.
+        return await this.failRun(event, attempt.runId, attempt.automationId, 'TRANSIENT', message, attempt.secrets);
+      }
+      const retryCount = event.retryCount + 1;
+      const retriesLeft = retryCount <= MAX_RETRIES;
+      await prisma.webhookEvent.update({
+        where: { id: eventId },
+        data: {
+          status: retriesLeft ? 'RETRYING' : 'FAILED',
+          errorDetails: message,
+          retryCount,
+          nextRetryAt: retriesLeft ? retryAt(retryCount) : null,
+          processedAt: retriesLeft ? null : new Date(),
+          processingStartedAt: null,
+        },
+      });
+    } catch (bookkeepingError) {
+      console.error('[automation] unable to record comment processing failure', {
+        eventId,
+        error: safeErrorMessage(bookkeepingError, attempt.secrets),
+      });
+    }
+    return { status: 'FAILED', message, automationRunId: attempt.runId };
   }
 
   public static async processMessagingEvent(eventId: string): Promise<Result> {
@@ -310,7 +399,10 @@ export class AutomationEngine {
     let auditUserId: string | null = null;
     let auditAutomationId: string | null = null;
     let auditAction = 'UNKNOWN';
-    const finish = async (result: Result): Promise<Result> => {
+    const secrets: string[] = [];
+    const finish = async (unsafeResult: Result): Promise<Result> => {
+      // Outcomes are stored in the audit log and on the webhook event.
+      const result = { ...unsafeResult, message: redactSecrets(unsafeResult.message, secrets).slice(0, 500) };
       try {
         await prisma.auditLog.create({
           data: {
@@ -328,7 +420,7 @@ export class AutomationEngine {
           },
         });
       } catch (auditError) {
-        console.error('Unable to write messaging audit log:', auditError);
+        console.error('Unable to write messaging audit log:', safeErrorMessage(auditError, secrets));
       }
       return result;
     };
@@ -370,6 +462,7 @@ export class AutomationEngine {
       auditUserId = connection.userId;
       const realInstagramAccountId = connection.instagramAccountId;
       const accessToken = connection.accessTokenEncrypted ? decryptToken(connection.accessTokenEncrypted) : '';
+      secrets.push(accessToken);
       const igUsername = connection.instagramUsername || 'instagram';
       const contactHint = await prisma.contact.findUnique({
         where: { instagramAccountId_igsid: { instagramAccountId: realInstagramAccountId, igsid: senderId } },
@@ -498,7 +591,7 @@ export class AutomationEngine {
 
       return finish({ status: 'IGNORED', message: 'Unsupported follow-gate action' });
     } catch (error) {
-      return finish({ status: 'FAILED', message: error instanceof Error ? error.message : 'Error processing messaging action' });
+      return finish({ status: 'FAILED', message: error instanceof Error ? safeErrorMessage(error, secrets) : 'Error processing messaging action' });
     }
   }
 }

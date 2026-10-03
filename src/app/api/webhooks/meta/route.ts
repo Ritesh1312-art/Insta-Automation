@@ -1,6 +1,7 @@
 import { after, NextRequest, NextResponse } from 'next/server';
 import { WebhookService } from '@/services/webhooks/WebhookService';
 import { AutomationEngine } from '@/services/automation/AutomationEngine';
+import { safeErrorMessage } from '@/lib/safe-error';
 
 export const runtime = 'nodejs';
 
@@ -37,7 +38,8 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ status: 'RECEIVED', commentEventCount: storedComments.length, messagingEventCount: storedMessaging.length });
   } catch (error) {
-    console.error('Meta webhook receiver error:', error);
+    // Never log the raw error: Prisma errors can echo comment text and other payload data.
+    console.error('Meta webhook receiver error:', safeErrorMessage(error));
     return NextResponse.json({ error: 'Unable to receive webhook' }, { status: 500 });
   }
 }

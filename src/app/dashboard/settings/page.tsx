@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Bot, HelpCircle, RefreshCw, Settings, ShieldAlert, Webhook } from 'lucide-react';
+import { requestStudioStatsRefresh } from '@/lib/studio-refresh';
 
 type TelegramStatus = {
   configured: boolean;
@@ -58,6 +59,7 @@ export default function SettingsPage() {
     if (!confirm('Pause every active automation? No messages will be sent until you reactivate them.')) return;
     const response = await fetch('/api/automations/pause-all', { method: 'POST' });
     const data = await response.json();
+    if (response.ok) requestStudioStatsRefresh();
     setMessage(response.ok ? `${data.paused} automation(s) paused.` : data.error || 'Unable to pause automations.');
   };
 

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { postCover, postTitle, type StudioPost } from '@/components/studio';
+import { requestStudioStatsRefresh } from '@/lib/studio-refresh';
 
 export default function AutomationComposer({
   post,
@@ -61,6 +62,7 @@ export default function AutomationComposer({
         setError(data.error || 'Could not save');
         return;
       }
+      requestStudioStatsRefresh();
       onSaved();
     } catch {
       setError('Network error');

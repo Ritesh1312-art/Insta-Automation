@@ -1,3 +1,5 @@
+import { redactSecrets } from '@/lib/safe-error';
+
 export interface PrivateReplyPayload {
   instagramAccountId: string;
   commentId: string;
@@ -23,6 +25,11 @@ function classifyError(data: any, status?: number): ApiResponse {
   else if ((status && status >= 500) || code === 1 || code === 2) errorCategory = 'TRANSIENT';
   else if (code === 100 || subcode === 33) errorCategory = 'VALIDATION';
   return { success: false, errorCategory, errorMessage: `[Meta API ${code ?? status ?? 'unknown'}] ${message}` };
+}
+
+/** Error text is persisted and shown in the dashboard; strip the access token and other credentials. */
+function withoutSecrets(result: ApiResponse, accessToken: string): ApiResponse {
+  return result.errorMessage ? { ...result, errorMessage: redactSecrets(result.errorMessage, [accessToken]) } : result;
 }
 
 export class InstagramMessagingService {
@@ -51,13 +58,13 @@ export class InstagramMessagingService {
       const data = await response.json().catch(() => ({}));
       return response.ok
         ? { success: true, responseId: data.message_id || data.id }
-        : classifyError(data, response.status);
+        : withoutSecrets(classifyError(data, response.status), accessToken);
     } catch (error) {
-      return {
+      return withoutSecrets({
         success: false,
         errorCategory: 'TRANSIENT',
         errorMessage: error instanceof Error ? error.message : 'Network failure',
-      };
+      }, accessToken);
     }
   }
 
@@ -83,9 +90,12 @@ export class InstagramMessagingService {
       const data = await response.json().catch(() => ({}));
       return response.ok
         ? { success: true, responseId: data.id }
-        : classifyError(data, response.status);
+        : withoutSecrets(classifyError(data, response.status), payload.accessToken);
     } catch (error) {
-      return { success: false, errorCategory: 'TRANSIENT', errorMessage: error instanceof Error ? error.message : 'Network failure' };
+      return withoutSecrets(
+        { success: false, errorCategory: 'TRANSIENT', errorMessage: error instanceof Error ? error.message : 'Network failure' },
+        payload.accessToken,
+      );
     }
   }
 

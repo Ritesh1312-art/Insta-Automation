@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Activity, AlertTriangle, Camera, Film, MessageCircle, Send, Sparkles, Zap } from 'lucide-react';
+import { subscribeToStudioStatsRefresh } from '@/lib/studio-refresh';
 
 type StudioStats = {
   totalAutomations: number;
@@ -35,13 +36,20 @@ export default function DashboardOverview() {
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    setError('');
+  const latestRequest = useRef(0);
+
+  // Background refreshes keep the current numbers on screen (no skeleton);
+  // only the newest response is applied if refreshes overlap.
+  const load = useCallback(async (background = false) => {
+    const request = ++latestRequest.current;
+    if (!background) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [statsResponse, logsResponse] = await Promise.all([
-        fetch('/api/stats'),
-        fetch('/api/logs'),
+        fetch('/api/stats', { cache: 'no-store' }),
+        fetch('/api/logs', { cache: 'no-store' }),
       ]);
       const [statsData, logsData] = await Promise.all([
         statsResponse.json(),
@@ -49,19 +57,25 @@ export default function DashboardOverview() {
       ]);
       if (!statsResponse.ok) throw new Error(statsData.error || 'Studio status load nahi ho paaya');
       if (!logsResponse.ok) throw new Error(logsData.error || 'Latest activity load nahi ho paayi');
+      if (request !== latestRequest.current) return;
       setStats(statsData);
       setRecentRuns((logsData.runs || []).slice(0, 5));
+      setError('');
     } catch (loadError) {
+      if (request !== latestRequest.current) return;
       setError(loadError instanceof Error ? loadError.message : 'Studio load nahi ho paaya');
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     setConnectionError(new URLSearchParams(window.location.search).get('error') === 'meta_connection_failed');
     void load();
-  }, []);
+    // Refetch when Studio is revisited or becomes visible, or when flows or
+    // analytics change elsewhere, so it never shows stale totals.
+    return subscribeToStudioStatsRefresh(() => { void load(true); });
+  }, [load]);
 
   const handleConnectMeta = async () => {
     setError('');
