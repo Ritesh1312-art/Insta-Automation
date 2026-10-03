@@ -23,6 +23,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [failedAvatarAccount, setFailedAvatarAccount] = useState<string | null>(null);
+
+  const instagramUsername = typeof stats?.instagramUsername === 'string'
+    ? stats.instagramUsername.trim().replace(/^@+/, '')
+    : '';
+  const isConnected = stats?.connectionStatus
+    ? stats.connectionStatus === 'CONNECTED'
+    : Boolean(instagramUsername);
+  const accountKey = `${stats?.connectionStatus || ''}:${stats?.instagramAccountId || ''}:${instagramUsername}`;
+  const avatarFailed = failedAvatarAccount !== null && failedAvatarAccount === accountKey;
+  const avatarInitial = (instagramUsername.charAt(0) || '?').toUpperCase();
+
+  useEffect(() => {
+    setFailedAvatarAccount(null);
+  }, [accountKey]);
 
   useEffect(() => {
     fetch('/api/stats').then((res) => res.ok && res.json()).then(setStats).catch(() => null);
@@ -91,8 +106,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           <div className="mt-8 space-y-3">
             <div className="flex items-center gap-3 rounded-2xl border border-white/10 p-3">
-              {stats?.profilePictureUrl ? (
-                <img src={stats.profilePictureUrl} alt="" className="h-10 w-10 rounded-full object-cover" />
+              {isConnected && !avatarFailed ? (
+                <img
+                  key={accountKey}
+                  src="/api/meta/profile-picture"
+                  alt={instagramUsername ? `@${instagramUsername} profile picture` : 'Instagram profile picture'}
+                  onError={() => setFailedAvatarAccount(accountKey)}
+                  className="h-10 w-10 shrink-0 rounded-full object-cover"
+                />
+              ) : isConnected || instagramUsername ? (
+                <div
+                  aria-label={instagramUsername ? `@${instagramUsername} profile picture` : 'Instagram profile picture'}
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-fuchsia-500/30 via-rose-500/30 to-amber-300/30 text-sm font-bold uppercase text-fuchsia-200 ring-1 ring-white/15"
+                >
+                  {avatarInitial}
+                </div>
               ) : (
                 <div className="h-10 w-10 rounded-full bg-white/10" />
               )}
