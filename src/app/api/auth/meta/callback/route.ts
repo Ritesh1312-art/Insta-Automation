@@ -5,6 +5,7 @@ import { MetaAuthService, META_OAUTH_SCOPES } from '@/services/meta/MetaAuthServ
 import { encryptToken } from '@/lib/encryption';
 import { prisma } from '@/lib/prisma';
 import { InstagramMediaService, normalizeMediaType, resolveDisplayUrls } from '@/services/meta/InstagramMediaService';
+import { logAuthFailure } from '@/lib/auth-logging';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,12 +96,12 @@ export async function GET(req: NextRequest) {
         syncedCount += 1;
       }
     } catch (mediaError) {
-      console.error('Initial Instagram media sync after connect failed:', mediaError);
+      logAuthFailure('meta_media_sync', mediaError);
       await prisma.auditLog.create({
         data: {
           userId,
           action: 'META_INITIAL_SYNC_FAILED',
-          details: { message: mediaError instanceof Error ? mediaError.message.slice(0, 300) : 'Unknown error' },
+          details: { reason: 'initial_media_sync_failed' },
         },
       }).catch(() => undefined);
     }
@@ -111,13 +112,13 @@ export async function GET(req: NextRequest) {
     if (account.webhookSubscriptionWarnings?.length) destination.searchParams.set('webhookWarning', 'true');
     return NextResponse.redirect(destination);
   } catch (error) {
-    console.error('Meta OAuth callback failed:', error);
+    logAuthFailure('meta_oauth_callback', error);
     if (userId) {
       await prisma.auditLog.create({
         data: {
           userId,
           action: 'META_AUTH_CALLBACK_ERROR',
-          details: { message: error instanceof Error ? error.message.slice(0, 300) : 'Unknown error' },
+          details: { reason: 'meta_oauth_callback_failed' },
         },
       }).catch(() => undefined);
     }

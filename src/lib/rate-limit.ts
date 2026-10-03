@@ -12,6 +12,11 @@ export function requestFingerprint(request: Request, discriminator = '') {
   return digest(`${address}|${discriminator.toLowerCase().trim()}`);
 }
 
+/** Fingerprint a stable identity dimension without storing the identity itself. */
+export function identityFingerprint(namespace: string, identity: string) {
+  return digest(`${namespace.toLowerCase().trim()}|${identity.toLowerCase().trim()}`);
+}
+
 /** Database-backed limiter that works across serverless/Worker instances. */
 export async function consumeRateLimit(params: {
   action: string;
@@ -24,7 +29,9 @@ export async function consumeRateLimit(params: {
     // Serialize a given action/fingerprint window so parallel requests cannot all
     // pass the count before any of them records its attempt.
     const lockKey = `${params.action}:${params.fingerprint}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lockResult"
+    `;
     const used = await tx.auditLog.count({
       where: {
         action: params.action,

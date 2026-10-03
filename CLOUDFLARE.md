@@ -44,6 +44,7 @@ Cloudflare has **Build** variables and **Runtime / Worker** secrets. Add the sam
 | `ENCRYPTION_KEY` | 64 hex chars |
 | `CRON_SECRET` | random, for the retry job |
 | `SETUP_TOKEN` | one-time admin bootstrap |
+| `ADMIN_LOGIN_IDENTIFIER` | normalized identifier of the existing `ADMIN` account; server-only |
 | `META_APP_ID` | Meta app id |
 | `META_APP_SECRET` | Meta app secret |
 | `META_VERIFY_TOKEN` | webhook verify token |
@@ -58,7 +59,7 @@ Cloudflare has **Build** variables and **Runtime / Worker** secrets. Add the sam
 
 Never add `TELEGRAM_WEBHOOK_SECRET`; the app derives it from `AUTH_SECRET`.
 
-Encrypt secrets (the lock icon). Do **not** paste keys into the repo.
+Encrypt secrets (the lock icon). Set `ADMIN_LOGIN_IDENTIFIER` to the normalized identifier of the existing database user with role `ADMIN` in the server environment only; never use a `NEXT_PUBLIC_` prefix or commit the production value. Do **not** paste credentials or secrets into the repo.
 
 `APP_URL` must be HTTPS. After the first deploy, set it to the live hostname and redeploy.
 
@@ -82,7 +83,7 @@ Authorization: Bearer CRON_SECRET
 
 ## 6. First login
 
-Open `/setup` once with `SETUP_TOKEN`, create the admin, then rotate/delete `SETUP_TOKEN`.
+For an existing database, configure `ADMIN_LOGIN_IDENTIFIER` to the existing account whose database role is `ADMIN`, then sign in at `/admin/login`. Do not use `/setup`, `admin:create`, a seed, or a migration to change an existing account's identifier, role, or password. `/setup` is only for bootstrapping an intentionally empty/new database; rotate or remove `SETUP_TOKEN` immediately afterward.
 
 ## Prisma note
 

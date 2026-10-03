@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { MetaAuthService } from '@/services/meta/MetaAuthService';
 import { createOAuthState, requireSessionUser } from '@/lib/auth';
 import { metaRedirectUri } from '@/lib/app-url';
+import { logAuthFailure } from '@/lib/auth-logging';
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,10 +12,10 @@ export async function GET(req: NextRequest) {
       url: MetaAuthService.getOAuthUrl(state, metaRedirectUri(req.url)),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to start Meta authorization';
-    const unauthorized = message === 'UNAUTHORIZED';
+    const unauthorized = error instanceof Error && error.message === 'UNAUTHORIZED';
+    if (!unauthorized) logAuthFailure('meta_oauth_start', error);
     return NextResponse.json(
-      { error: unauthorized ? 'Unauthorized' : message },
+      { error: unauthorized ? 'Unauthorized' : 'Unable to start Meta authorization' },
       { status: unauthorized ? 401 : 500 },
     );
   }

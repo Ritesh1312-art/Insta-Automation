@@ -33,6 +33,7 @@ Copy `.env.example` to `.env` / Vercel project settings.
 | `ENCRYPTION_KEY` | 64 hex chars for Meta token encryption |
 | `CRON_SECRET` | Bearer token for `/api/jobs/process-webhooks` |
 | `SETUP_TOKEN` | One-time first admin bootstrap |
+| `ADMIN_LOGIN_IDENTIFIER` | Server-only identifier of the existing `ADMIN` account for `/admin/login` |
 | `META_APP_ID` / `META_APP_SECRET` | Meta app credentials |
 | `META_VERIFY_TOKEN` | Webhook verify token (must match Meta dashboard) |
 | `META_GRAPH_API_VERSION` | e.g. `v21.0` |
@@ -40,6 +41,8 @@ Copy `.env.example` to `.env` / Vercel project settings.
 | `UPI_ID` / `UPI_PAYEE_NAME` | Checkout payee. QR is auto-generated from these — no image upload |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional approval bot; env values override dashboard settings |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | Optional welcome, OTP, and payment-status emails |
+
+Set `ADMIN_LOGIN_IDENTIFIER` to the normalized lookup identifier of the already-existing database user whose role is `ADMIN`. It is server-only: do not use a `NEXT_PUBLIC_` prefix or put the production value in Git. On Vercel, configure it in both Production and Preview before testing `/admin/login`.
 
 Do not configure `TELEGRAM_WEBHOOK_SECRET`; the app derives a deterministic webhook secret from `AUTH_SECRET`.
 

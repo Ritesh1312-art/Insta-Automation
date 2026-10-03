@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
 import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
+import { logAuthFailure } from '@/lib/auth-logging';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,7 +39,8 @@ export async function POST(request: NextRequest) {
       },
     });
     return NextResponse.json({ success: true }, { status: 201 });
-  } catch {
+  } catch (error) {
+    logAuthFailure('admin_setup', error);
     return NextResponse.json({ error: 'Unable to create administrator' }, { status: 500 });
   }
 }

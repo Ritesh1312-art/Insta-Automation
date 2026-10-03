@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { isTransactionalEmailConfigured, sendPasswordResetOtpEmail } from '@/lib/mailer';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
 import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
+import { logAuthFailure } from '@/lib/auth-logging';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error) {
-    console.error('Password reset failed:', error);
+    logAuthFailure('password_recovery', error);
     return NextResponse.json({ error: 'Password reset request failed' }, { status: 500 });
   }
 }
