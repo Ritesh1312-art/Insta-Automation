@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSessionUser } from '@/lib/auth';
+import { logAuthFailure } from '@/lib/auth-logging';
 
 export async function POST() {
   try {
@@ -16,19 +17,11 @@ export async function POST() {
     
     return NextResponse.json({ success: true });
   } catch (error) {
+    const unauthorized = error instanceof Error && error.message === 'UNAUTHORIZED';
+    if (!unauthorized) logAuthFailure('meta_oauth_disconnect', error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error && error.message === 'UNAUTHORIZED'
-            ? 'Authentication required'
-            : 'Unable to disconnect connection',
-      },
-      {
-        status:
-          error instanceof Error && error.message === 'UNAUTHORIZED'
-            ? 401
-            : 500,
-      }
+      { error: unauthorized ? 'Authentication required' : 'Unable to disconnect connection' },
+      { status: unauthorized ? 401 : 500 },
     );
   }
 }

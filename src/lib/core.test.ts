@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./prisma', () => ({ prisma: { user: { findUnique: vi.fn() } } }));
+
 import { createOAuthState, signToken, verifyOAuthState, verifyToken } from './auth';
 import { publicAppUrl, metaRedirectUri } from './app-url';
 import { decryptToken, encryptToken } from './encryption';
@@ -16,7 +19,7 @@ afterEach(() => {
 describe('session and OAuth tokens', () => {
   it('signs and verifies a constrained session token', async () => {
     const token = await signToken({ userId: 'user-1', email: 'a@example.com', role: 'USER' });
-    await expect(verifyToken(token)).resolves.toEqual({ userId: 'user-1', email: 'a@example.com', role: 'USER' });
+    await expect(verifyToken(token)).resolves.toEqual({ userId: 'user-1', email: 'a@example.com', role: 'USER', sessionVersion: 0 });
     await expect(verifyOAuthState(token)).resolves.toBeNull();
   });
 
@@ -75,7 +78,7 @@ describe('plans, passwords, UPI, and follow-gate parsing', () => {
     expect(normalizePlanId('pro_creator')).toBe('PREMIUM');
     expect(getPlan('not-real')).toBe(PLANS.FREE);
     expect(PLANS.FREE.activeAutomationLimit).toBe(1);
-    expect(PLANS.PREMIUM_PRO_PLUS.activeAutomationLimit).toBeNull();
+    expect(PLANS.PREMIUM_PRO_PLUS.activeAutomationLimit).toBe(50);
     expect(formatPaiseAsInr(29_900)).toContain('299');
   });
 

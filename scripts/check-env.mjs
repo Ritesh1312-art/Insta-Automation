@@ -9,6 +9,7 @@ const required = [
   'ENCRYPTION_KEY',
   'CRON_SECRET',
   'SETUP_TOKEN',
+  'ADMIN_LOGIN_IDENTIFIER',
   'META_APP_ID',
   'META_APP_SECRET',
   'META_VERIFY_TOKEN',
@@ -52,6 +53,10 @@ if ((process.env.AUTH_SECRET || '').length < 32) errors.push('AUTH_SECRET must b
 if (!/^[a-fA-F0-9]{64}$/.test(process.env.ENCRYPTION_KEY || '')) errors.push('ENCRYPTION_KEY must be exactly 64 hexadecimal characters');
 if ((process.env.CRON_SECRET || '').length < 24) errors.push('CRON_SECRET must be at least 24 characters');
 if ((process.env.SETUP_TOKEN || '').length < 24) errors.push('SETUP_TOKEN must be at least 24 characters');
+const adminLoginIdentifier = process.env.ADMIN_LOGIN_IDENTIFIER?.trim();
+if (adminLoginIdentifier && (adminLoginIdentifier.length > 254 || /[\s\u0000-\u001f\u007f]/u.test(adminLoginIdentifier))) {
+  errors.push('ADMIN_LOGIN_IDENTIFIER must be a single normalized account identifier');
+}
 if ((process.env.META_VERIFY_TOKEN || '').length < 16) errors.push('META_VERIFY_TOKEN must be at least 16 characters');
 if (!/^v\d+\.\d+$/.test(process.env.META_GRAPH_API_VERSION || '')) errors.push('META_GRAPH_API_VERSION must look like v21.0');
 if (process.env.UPI_ID && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(process.env.UPI_ID.trim())) errors.push('UPI_ID is invalid');

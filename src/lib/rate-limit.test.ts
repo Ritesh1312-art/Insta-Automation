@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => {
   return { tx, prisma: { $transaction: vi.fn() } };
 });
 vi.mock('./prisma', () => ({ prisma: mocks.prisma }));
-import { consumeRateLimit, requestFingerprint } from './rate-limit';
+import { consumeRateLimit, identityFingerprint, requestFingerprint } from './rate-limit';
 
 describe('database rate limiting', () => {
   beforeEach(() => {
@@ -35,5 +35,23 @@ describe('database rate limiting', () => {
     mocks.tx.auditLog.count.mockResolvedValueOnce(3);
     await expect(consumeRateLimit({ action: 'LOGIN', fingerprint: 'hash', limit: 3, windowMs: 60_000 })).resolves.toBe(false);
     expect(mocks.tx.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('casts the PostgreSQL advisory-lock void result to text for Prisma', async () => {
+    mocks.tx.auditLog.count.mockResolvedValue(0);
+    mocks.tx.auditLog.create.mockResolvedValue({});
+
+    await consumeRateLimit({ action: 'LOGIN', fingerprint: 'fingerprint', limit: 3, windowMs: 60_000 });
+
+    const [queryParts] = mocks.tx.$queryRaw.mock.calls[0];
+    const query = Array.from(queryParts as TemplateStringsArray).join('<lock-key>');
+    expect(query).toContain('SELECT pg_advisory_xact_lock(hashtextextended(<lock-key>, 0))::text AS "lockResult"');
+  });
+
+  it('hashes identity-only rate-limit dimensions without exposing them', () => {
+    const fingerprint = identityFingerprint('admin-account', 'Admin@Unit.Test');
+    expect(fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(fingerprint).toBe(identityFingerprint('ADMIN-ACCOUNT', 'admin@unit.test'));
+    expect(fingerprint).not.toContain('admin');
   });
 });

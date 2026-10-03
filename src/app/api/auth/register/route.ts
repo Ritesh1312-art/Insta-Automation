@@ -6,6 +6,7 @@ import { PLANS } from '@/lib/plans';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
 import { sendWelcomeEmail } from '@/lib/mailer';
 import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
+import { logAuthFailure } from '@/lib/auth-logging';
 
 export async function POST(req: NextRequest) {
   try {
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     });
     return response;
   } catch (error) {
-    console.error('Registration failed:', error);
+    logAuthFailure('registration', error);
     return NextResponse.json({ error: 'Unable to create account' }, { status: 500 });
   }
 }

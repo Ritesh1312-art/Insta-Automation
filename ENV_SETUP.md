@@ -1,6 +1,6 @@
 # Environment variables
 
-Copy from `.env.example`. Real values live in your private `.env` (gitignored) and in Cloudflare secrets.
+Copy from `.env.example`. Real values live in your private `.env` (gitignored) and in the deployment provider's environment settings/secrets (Vercel or Cloudflare).
 
 ## UPI_PAYEE_NAME — apna naam?
 
@@ -23,6 +23,7 @@ Agar `pn` registered name se match nahi karta, PhonePe/GPay kabhi warning dete h
 | `ENCRYPTION_KEY` | Generated (64 hex) |
 | `CRON_SECRET` | Generated |
 | `SETUP_TOKEN` | Generated — `/setup` ke baad private rakho |
+| `ADMIN_LOGIN_IDENTIFIER` | Exact normalized lookup identifier of the existing database `ADMIN`; server-only |
 | `META_VERIFY_TOKEN` | Generated — Meta webhook verify token isi se match kare |
 | `META_GRAPH_API_VERSION` | `v21.0` |
 | `DATABASE_URL` | **You** — Neon/Supabase |
@@ -37,6 +38,10 @@ Agar `pn` registered name se match nahi karta, PhonePe/GPay kabhi warning dete h
 
 `TELEGRAM_WEBHOOK_SECRET` mat daalo. App `AUTH_SECRET` se deterministic HMAC secret banati hai.
 
+## Vercel
+
+In Project Settings → Environment Variables, configure `ADMIN_LOGIN_IDENTIFIER` for both **Production** and **Preview**. Use the normalized identifier of the existing user whose database role is `ADMIN`. Keep it server-only (never prefix it with `NEXT_PUBLIC_`) and do not commit the production value.
+
 ## Cloudflare
 
-Workers → Settings → Variables and Secrets → har key **Build** + **Runtime**. Secrets encrypt (lock).
+Workers → Settings → Variables and Secrets → har key **Build** + **Runtime**. Secrets encrypt (lock). Set `ADMIN_LOGIN_IDENTIFIER` for both build and runtime environments.

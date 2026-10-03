@@ -32,14 +32,14 @@ function isSessionPayload(payload: Record<string, unknown>): payload is Record<s
     && (payload.sessionVersion === undefined || (typeof payload.sessionVersion === 'number' && Number.isInteger(payload.sessionVersion) && payload.sessionVersion >= 0));
 }
 
-export async function signToken(payload: JWTPayload): Promise<string> {
+export async function signToken(payload: JWTPayload, expiresIn = '7d'): Promise<string> {
   return new SignJWT({ ...payload, purpose: 'session' })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuer(ISSUER)
     .setAudience(SESSION_AUDIENCE)
     .setIssuedAt()
     .setJti(randomUUID())
-    .setExpirationTime('7d')
+    .setExpirationTime(expiresIn)
     .sign(authKey());
 }
 

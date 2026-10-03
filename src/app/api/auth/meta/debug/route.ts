@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
 import { isAuthError, requireAdmin } from '@/lib/require-admin';
+import { logAuthFailure } from '@/lib/auth-logging';
 import { MetaAuthService, META_INSTAGRAM_WEBHOOK_FIELDS, META_PAGE_WEBHOOK_FIELDS } from '@/services/meta/MetaAuthService';
 
 export const dynamic = 'force-dynamic';
@@ -64,10 +65,11 @@ export async function GET() {
         META_VERIFY_TOKEN: process.env.META_VERIFY_TOKEN ? 'Configured' : 'Missing',
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     if (isAuthError(error, 'UNAUTHORIZED')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     if (isAuthError(error, 'FORBIDDEN')) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-    return NextResponse.json({ success: false, error: error.message || 'Debug lookup failed' }, { status: 500 });
+    logAuthFailure('admin_meta_debug', error);
+    return NextResponse.json({ success: false, error: 'Unable to load Meta diagnostics' }, { status: 500 });
   }
 }
 
@@ -92,7 +94,7 @@ export async function POST() {
         ]);
         const errors = attempts
           .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-          .map((result) => result.reason instanceof Error ? result.reason.message : 'Unknown error');
+          .map(() => 'Subscription failed');
         subscriptionResults.push({
           instagramUsername: conn.instagramUsername,
           success: errors.length === 0,
@@ -100,11 +102,11 @@ export async function POST() {
           instagramSubscribed: attempts[1].status === 'fulfilled',
           errors,
         });
-      } catch (error) {
+      } catch {
         subscriptionResults.push({
           instagramUsername: conn.instagramUsername,
           success: false,
-          error: error instanceof Error ? error.message : 'Subscription failed',
+          error: 'Subscription failed',
         });
       }
     }
@@ -117,9 +119,10 @@ export async function POST() {
       },
       subscriptionResults,
     });
-  } catch (error: any) {
+  } catch (error) {
     if (isAuthError(error, 'UNAUTHORIZED')) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     if (isAuthError(error, 'FORBIDDEN')) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-    return NextResponse.json({ success: false, error: error.message || 'Webhook re-subscribe failed' }, { status: 500 });
+    logAuthFailure('admin_meta_debug', error);
+    return NextResponse.json({ success: false, error: 'Unable to re-subscribe Meta webhooks' }, { status: 500 });
   }
 }

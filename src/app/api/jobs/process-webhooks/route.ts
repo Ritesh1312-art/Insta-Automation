@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const now = Date.now();
   const [webhookRetention, auditRetention] = await Promise.all([
     prisma.webhookEvent.deleteMany({ where: { OR: [{ status: { in: ['PROCESSED', 'IGNORED'] }, createdAt: { lt: new Date(now - 30 * 86400000) } }, { status: 'FAILED', createdAt: { lt: new Date(now - 90 * 86400000) } }] } }),
-    prisma.auditLog.deleteMany({ where: { createdAt: { lt: new Date(now - 180 * 86400000) }, action: { in: ['RATE_LIMIT_LOGIN', 'RATE_LIMIT_PASSWORD_OTP', 'RATE_LIMIT_PASSWORD_VERIFY', 'PASSWORD_RESET_OTP', 'MESSAGING_PROCESSED', 'MESSAGING_FAILED', 'FOLLOW_GATE_VERIFIED'] } } }),
+    prisma.auditLog.deleteMany({ where: { createdAt: { lt: new Date(now - 180 * 86400000) }, action: { in: ['RATE_LIMIT_LOGIN', 'RATE_LIMIT_ADMIN_LOGIN_CLIENT', 'RATE_LIMIT_ADMIN_LOGIN_ACCOUNT', 'RATE_LIMIT_PASSWORD_OTP', 'RATE_LIMIT_PASSWORD_VERIFY', 'PASSWORD_RESET_OTP', 'MESSAGING_PROCESSED', 'MESSAGING_FAILED', 'FOLLOW_GATE_VERIFIED'] } } }),
   ]);
   return NextResponse.json({ processed: results.length, quotasReset, webhookRetention: webhookRetention.count, auditRetention: auditRetention.count, results });
 }

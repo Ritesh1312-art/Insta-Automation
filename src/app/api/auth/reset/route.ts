@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { PASSWORD_POLICY_MESSAGE, validatePassword } from '@/lib/password-policy';
 import { consumeRateLimit, requestFingerprint } from '@/lib/rate-limit';
+import { logAuthFailure } from '@/lib/auth-logging';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,7 +39,8 @@ export async function POST(request: NextRequest) {
       data: { passwordHash: await bcrypt.hash(password, 12) },
     });
     return NextResponse.json({ success: true, message: 'Password updated successfully' });
-  } catch {
+  } catch (error) {
+    logAuthFailure('password_reset', error);
     return NextResponse.json({ error: 'Unable to reset password' }, { status: 500 });
   }
 }

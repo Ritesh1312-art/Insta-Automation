@@ -29,10 +29,12 @@ The final migration converts historical `DirectUpiPayment.amount` values from IN
 
 - [ ] `AUTH_SECRET`, `CRON_SECRET`, `SETUP_TOKEN`, and `META_VERIFY_TOKEN` are independently generated high-entropy values.
 - [ ] `ENCRYPTION_KEY` is exactly 64 hexadecimal characters and has a protected backup. Losing it makes stored Meta/bot tokens unreadable.
-- [ ] Secrets exist only in the host's secret manager, not Git, build logs, screenshots, or client bundles.
+- [ ] Secrets and the server-only `ADMIN_LOGIN_IDENTIFIER` exist only in host settings, not Git, build logs, screenshots, or client bundles; configure the identifier in both Vercel Production and Preview when applicable.
+- [ ] `ADMIN_LOGIN_IDENTIFIER` resolves to the existing database account and that account's role is `ADMIN`; login never grants or changes roles.
 - [ ] HTTPS is enforced and `APP_URL` and `META_REDIRECT_URI` use the exact canonical production origin.
-- [ ] `/setup` created the intended first admin; `SETUP_TOKEN` was then rotated or removed.
-- [ ] A non-admin account receives 403 from admin UPI, user, and Telegram-setting APIs.
+- [ ] On a new, intentionally empty database only, `/setup` created the first admin and `SETUP_TOKEN` was rotated or removed; do not use setup, `admin:create`, seeds, or migrations to modify an existing production account.
+- [ ] `/admin/login` requires only the password and uses a session-only cookie; regular-user login has matching JWT/cookie expiry for both Remember Me choices.
+- [ ] A regular `USER` is redirected away from admin pages and receives 403 from admin user, UPI, payment-review, Telegram-setting, and Meta-debug APIs.
 - [ ] Secret rotation and incident owners are documented.
 
 ## 3. Meta professional account and app
