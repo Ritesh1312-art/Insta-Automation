@@ -1,7 +1,7 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getPlan, normalizePlanId } from '@/lib/plans';
-import { planAssignmentData } from '@/lib/quota';
+import { planAssignmentData, withQuotaLock } from '@/lib/quota';
 import { sendPaymentRejectedEmail, sendPlanActivatedEmail } from '@/lib/mailer';
 
 export type PaymentDecision = 'VERIFIED' | 'REJECTED';
@@ -32,7 +32,10 @@ export async function reviewDirectUpiPayment(params: {
     throw new PaymentReviewError('Payment has an invalid plan', 400);
   }
 
-  const reviewed = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  // The plan/quota change runs under the owner's quota lock (taken first, inside
+  // this transaction) so it serializes with DM reservations and cycle resets:
+  // a concurrent expiry can no longer overwrite the plan being approved.
+  const reviewed = await withQuotaLock(existing.userId, async (tx: Prisma.TransactionClient) => {
     // The conditional write makes dashboard and Telegram button clicks idempotent.
     const claimed = await tx.directUpiPayment.updateMany({
       where: { id: existing.id, status: 'PENDING_REVIEW' },

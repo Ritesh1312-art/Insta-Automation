@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
   const tx = {
+    $queryRaw: vi.fn(),
     directUpiPayment: { updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     user: { update: vi.fn(), findUniqueOrThrow: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -32,6 +33,7 @@ describe('payment review', () => {
     vi.clearAllMocks();
     mocks.prisma.directUpiPayment.findUnique.mockResolvedValue(pending);
     mocks.prisma.$transaction.mockImplementation(async (callback: (tx: any) => unknown) => callback(mocks.tx));
+    mocks.tx.$queryRaw.mockResolvedValue([{ lockResult: '' }]);
     mocks.tx.directUpiPayment.updateMany.mockResolvedValue({ count: 1 });
     mocks.tx.directUpiPayment.findUniqueOrThrow.mockResolvedValue({ ...pending, status: 'VERIFIED' });
     mocks.tx.user.update.mockResolvedValue({});
@@ -54,6 +56,22 @@ describe('payment review', () => {
     }));
     expect(mocks.activatedEmail).toHaveBeenCalledWith('user@example.com', 'PREMIUM', 750);
     expect(result.status).toBe('VERIFIED');
+  });
+
+  it('takes the owner quota lock (cast, inside the review transaction) before changing the plan', async () => {
+    await reviewDirectUpiPayment({ paymentId: 'payment', decision: 'VERIFIED', reviewedBy: 'admin', source: 'DASHBOARD' });
+
+    expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.tx.$queryRaw).toHaveBeenCalledTimes(1);
+    const [queryParts, lockKey] = mocks.tx.$queryRaw.mock.calls[0];
+    expect(Array.from(queryParts as TemplateStringsArray).join('<key>'))
+      .toBe('SELECT pg_advisory_xact_lock(hashtextextended(<key>, 0))::text AS "lockResult"');
+    expect(lockKey).toBe('quota:user');
+    // The lock is the first statement of the transaction.
+    expect(mocks.tx.$queryRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.tx.directUpiPayment.updateMany.mock.invocationCallOrder[0]);
+    expect(mocks.tx.directUpiPayment.updateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.tx.user.update.mock.invocationCallOrder[0]);
   });
 
   it('rejects without cancelling an already-active paid term', async () => {

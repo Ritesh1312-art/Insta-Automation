@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, Pause, Play, Trash2 } from 'lucide-react';
 import { postCover, type StudioPost } from '@/components/studio';
+import { requestStudioStatsRefresh } from '@/lib/studio-refresh';
 
 type Flow = {
   id: string;
@@ -32,7 +33,7 @@ export default function AutomationsPage() {
   const load = async () => {
     setError('');
     try {
-      const response = await fetch('/api/automations');
+      const response = await fetch('/api/automations', { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Flows load nahi ho paaye');
       setAutomations(data.automations || []);
@@ -53,11 +54,13 @@ export default function AutomationsPage() {
     try {
       const response = await fetch('/api/automations', {
         method: 'PATCH',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: flow.id, status: flow.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Flow update nahi ho paaya');
+      requestStudioStatsRefresh();
       await load();
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : 'Flow update nahi ho paaya');
@@ -71,10 +74,11 @@ export default function AutomationsPage() {
     setBusyId(flow.id);
     setError('');
     try {
-      const response = await fetch(`/api/automations?id=${encodeURIComponent(flow.id)}`, { method: 'DELETE' });
+      const response = await fetch(`/api/automations?id=${encodeURIComponent(flow.id)}`, { method: 'DELETE', cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Flow delete nahi ho paaya');
       setAutomations((current) => current.filter((item) => item.id !== flow.id));
+      requestStudioStatsRefresh();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Flow delete nahi ho paaya');
     } finally {

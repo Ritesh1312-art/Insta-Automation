@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { advisoryLockKeys, withTransactionAdvisoryLock } from '@/lib/advisory-lock';
 import { prisma } from '@/lib/prisma';
 
 function digest(value: string) {
@@ -25,13 +26,10 @@ export async function consumeRateLimit(params: {
   windowMs: number;
 }) {
   const since = new Date(Date.now() - params.windowMs);
-  return prisma.$transaction(async (tx: any) => {
-    // Serialize a given action/fingerprint window so parallel requests cannot all
-    // pass the count before any of them records its attempt.
-    const lockKey = `${params.action}:${params.fingerprint}`;
-    await tx.$queryRaw`
-      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lockResult"
-    `;
+  // Serialize a given action/fingerprint window so parallel requests cannot all
+  // pass the count before any of them records its attempt.
+  const lockKey = advisoryLockKeys.rateLimit(params.action, params.fingerprint);
+  return withTransactionAdvisoryLock(prisma, lockKey, async (tx) => {
     const used = await tx.auditLog.count({
       where: {
         action: params.action,

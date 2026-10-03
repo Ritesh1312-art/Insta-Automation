@@ -40,8 +40,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [accountKey]);
 
   useEffect(() => {
-    fetch('/api/stats').then((res) => res.ok && res.json()).then(setStats).catch(() => null);
-    fetch('/api/auth/me').then((res) => res.json()).then((data) => setIsAdmin(data.user?.role === 'ADMIN')).catch(() => null);
+    fetch('/api/stats', { cache: 'no-store' }).then((res) => res.ok && res.json()).then(setStats).catch(() => null);
+    fetch('/api/auth/me', { cache: 'no-store' }).then((res) => res.json()).then((data) => setIsAdmin(data.user?.role === 'ADMIN')).catch(() => null);
     setOpen(false);
   }, [pathname]);
 
