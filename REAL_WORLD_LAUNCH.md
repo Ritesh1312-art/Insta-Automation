@@ -44,6 +44,47 @@ PASS  SMTP: test mail accepted for delivery
 
 ---
 
+## 0. Who can use your deployment — two kinds of credentials
+
+"Only your real credentials" refers to **deployment secrets**, not to who may
+sign up. There are two separate layers:
+
+| Layer | Whose | Examples | Visible to end users? |
+| --- | --- | --- | --- |
+| Deployment secrets (`.env` / Worker vars) | the owner (you), set once at deploy time | `META_APP_ID`, `META_APP_SECRET`, `META_VERIFY_TOKEN`, `ENCRYPTION_KEY`, `AUTH_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SMTP_*`, `DATABASE_URL`, `SETUP_TOKEN` | never |
+| Per-user credentials | each user, created in-app | their own login (`/register`) and their own Instagram account connected over OAuth | only their own |
+
+So the platform is multi-user, not personal-only: anyone can register, gets
+their own plan and quota (`src/lib/plans.ts`) and their own `MetaConnection`
+row holding a per-user encrypted token. Users never see or need the Meta app
+secret — they only log into Instagram on Meta's own consent screen.
+
+The first admin is created once via `POST /api/auth/setup` with `SETUP_TOKEN`;
+Telegram payment-approval messages always go to that admin's chat. All 11
+checks of `npm run verify:integrations` cover the **deployment-secret** layer,
+which is exactly why only you can run them after deploying — the sandbox
+verified every code path against local stand-ins instead.
+
+### Meta app mode: who Instagram allows to connect
+
+Until your Meta app is **Live** with Advanced Access, Meta only lets accounts
+that hold a role on the app connect:
+
+- *Development mode* (the default): only app **Admin / Developer / Tester**
+  accounts. Add people under App Roles → Roles → Testers (each tester must
+  accept the invitation) and they can connect right away.
+- *Live mode*: required for the general public — switch the app to Live and
+  pass App Review for **Advanced Access** on the scopes the app requests:
+  `instagram_basic`, `instagram_manage_comments`, `instagram_manage_messages`,
+  `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`,
+  `business_management`, `public_profile` (`META_OAUTH_SCOPES` in
+  `src/services/meta/MetaAuthService.ts`).
+- Either way, the connected Instagram account must be a **professional**
+  (Business or Creator) account linked to a Facebook Page; personal accounts
+  cannot use the comment-to-DM APIs.
+
+---
+
 ## 1. Database (E1)
 
 ```bash
