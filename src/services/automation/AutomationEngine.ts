@@ -18,6 +18,15 @@ export interface CommentEventPayload {
 }
 type Result = { status: 'PROCESSED' | 'IGNORED' | 'FAILED'; message: string; automationRunId?: string };
 
+/**
+ * What a messaging-processing attempt has done so far. The direct Instagram
+ * DM API has no idempotency token, so an event whose failure happened after a
+ * DM was sent (or whose Meta outcome is ambiguous) must never be replayed.
+ */
+type MessagingAttempt = {
+  dmSendAttempted: boolean;
+};
+
 /** What a comment-processing attempt has done so far; drives safe failure recovery. */
 type CommentAttempt = {
   /** Values that must never be logged or stored (the decrypted access token). */
@@ -50,15 +59,36 @@ export class AutomationEngine {
     }
   }
 
-  public static async ingestMessagingEvent(payload: { instagramAccountId: string; senderId: string; postbackPayload: string; interactionType?: 'POSTBACK' | 'QUICK_REPLY' | 'TEXT'; rawPayload: unknown; eventId?: string }) {
-    const digest = crypto.createHash('sha256').update(`${payload.instagramAccountId}:${payload.senderId}:${payload.postbackPayload}:${payload.interactionType || 'TEXT'}`).digest('hex');
-    const eventId = `msg:${payload.eventId || digest}`;
+  public static async ingestMessagingEvent(payload: {
+    instagramAccountId: string;
+    senderId: string;
+    postbackPayload: string;
+    interactionType?: 'POSTBACK' | 'QUICK_REPLY' | 'TEXT';
+    providerEventId?: string | null;
+    occurredAt?: number | null;
+    rawPayload: unknown;
+  }) {
+    // Duplicate webhook deliveries are deduplicated by Meta's stable `mid`/event
+    // id, so two separate identical messages from the same sender stay distinct.
+    // Only when a payload carries no provider id do we fall back to a content
+    // fingerprint — the timestamp inside it keeps redeliveries deduped while
+    // separating identical texts sent at different moments.
+    const eventId = payload.providerEventId
+      ? `msg:${payload.providerEventId}`
+      : `msg:${crypto.createHash('sha256').update(`${payload.instagramAccountId}:${payload.senderId}:${payload.postbackPayload}:${payload.interactionType || 'TEXT'}:${payload.occurredAt ?? ''}`).digest('hex')}`;
     // Deliberately retain only the actionable token and identifiers, never a full DM body.
-    return prisma.webhookEvent.upsert({
-      where: { eventId },
-      create: { eventId, eventType: 'messaging', instagramAccountId: payload.instagramAccountId, messagingSenderId: payload.senderId, messagingPayload: payload.postbackPayload.slice(0, 160), interactionType: payload.interactionType || 'TEXT', rawPayload: { eventId } as object, status: 'RECEIVED' },
-      update: {},
-    });
+    try {
+      return await prisma.webhookEvent.upsert({
+        where: { eventId },
+        create: { eventId, eventType: 'messaging', instagramAccountId: payload.instagramAccountId, messagingSenderId: payload.senderId, messagingPayload: payload.postbackPayload.slice(0, 160), interactionType: payload.interactionType || 'TEXT', rawPayload: { eventId } as object, status: 'RECEIVED' },
+        update: {},
+      });
+    } catch (error: any) {
+      // Concurrent deliveries of the same provider event can race between the
+      // upsert's read and insert; the unique eventId then resolves the winner.
+      if (error?.code === 'P2002') return prisma.webhookEvent.findUniqueOrThrow({ where: { eventId } });
+      throw error;
+    }
   }
 
   public static async processCommentEvent(payload: CommentEventPayload): Promise<Result> {
@@ -70,6 +100,9 @@ export class AutomationEngine {
     const claimed = await prisma.webhookEvent.updateMany({
       where: {
         id: eventId,
+        // Claiming is type-guarded: a messaging event can never be terminalized
+        // by the comment pipeline even if a caller mixes up the handlers.
+        eventType: 'comments',
         OR: [
           { status: 'RECEIVED' },
           { status: 'RETRYING', nextRetryAt: { lte: new Date() } },
@@ -293,7 +326,12 @@ export class AutomationEngine {
       orderBy: { createdAt: 'asc' },
       take: limit,
     });
-    return Promise.all(events.map((event: { id: string }) => this.processWebhookEvent(event.id)));
+    // Dispatch by event type: comment events must run the comment pipeline and
+    // messaging events the follow-gate pipeline. Sending a messaging event to
+    // the comment handler used to terminalize it as "Incomplete comment event".
+    return Promise.all(events.map((event: { id: string; eventType: string }) => (
+      event.eventType === 'messaging' ? this.processMessagingEvent(event.id) : this.processWebhookEvent(event.id)
+    )));
   }
 
   private static async finishEvent(eventId: string, status: 'IGNORED', message: string): Promise<Result> {
@@ -380,12 +418,43 @@ export class AutomationEngine {
   }
 
   public static async processMessagingEvent(eventId: string): Promise<Result> {
-    const claimed = await prisma.webhookEvent.updateMany({ where: { id: eventId, status: 'RECEIVED' }, data: { status: 'PROCESSING', processingStartedAt: new Date() } });
+    // Same claim policy as comment events: fresh deliveries, due retries, and
+    // PROCESSING rows left behind by a crashed worker are all claimable.
+    // Type-guarded, so a comment id can never be terminalized here either.
+    const claimed = await prisma.webhookEvent.updateMany({
+      where: {
+        id: eventId,
+        eventType: 'messaging',
+        OR: [
+          { status: 'RECEIVED' },
+          { status: 'RETRYING', nextRetryAt: { lte: new Date() } },
+          { status: 'PROCESSING', processingStartedAt: { lte: new Date(Date.now() - 10 * 60 * 1000) } },
+        ],
+      },
+      data: { status: 'PROCESSING', processingStartedAt: new Date() },
+    });
     if (!claimed.count) return { status: 'IGNORED', message: 'Messaging event already claimed' };
     const event = await prisma.webhookEvent.findUnique({ where: { id: eventId } });
     if (!event?.instagramAccountId || !event.messagingSenderId || !event.messagingPayload) return this.finishEvent(eventId, 'IGNORED', 'Incomplete messaging event');
-    const result = await this.processMessagingPostback({ instagramAccountId: event.instagramAccountId, senderId: event.messagingSenderId, postbackPayload: event.messagingPayload, interactionType: (event.interactionType as any) || 'TEXT', rawPayload: {} });
-    await prisma.webhookEvent.update({ where: { id: eventId }, data: { status: result.status === 'FAILED' ? 'FAILED' : result.status, processedAt: new Date(), processingStartedAt: null, errorDetails: result.status === 'FAILED' ? result.message : null } });
+    const attempt: MessagingAttempt = { dmSendAttempted: false };
+    const result = await this.processMessagingPostback({ instagramAccountId: event.instagramAccountId, senderId: event.messagingSenderId, postbackPayload: event.messagingPayload, interactionType: (event.interactionType as any) || 'TEXT', rawPayload: {} }, attempt);
+    if (result.status === 'FAILED') {
+      const retryCount = event.retryCount + 1;
+      // A FAILED result after a DM was handed to Meta can already mean "sent"
+      // (ambiguous network/timeout outcome), and direct DMs have no idempotency
+      // key — retrying here could duplicate the user's DM, so it stays terminal.
+      // Only pre-send failures (DB writes, decrypt/config errors) get the
+      // bounded RETRYING backoff; follow-gate delivery claims keep re-entry safe.
+      const retrying = !attempt.dmSendAttempted && retryCount <= MAX_RETRIES;
+      await prisma.webhookEvent.update({
+        where: { id: eventId },
+        data: retrying
+          ? { status: 'RETRYING', errorDetails: result.message, retryCount, nextRetryAt: retryAt(retryCount), processedAt: null, processingStartedAt: null }
+          : { status: 'FAILED', errorDetails: result.message, retryCount, nextRetryAt: null, processedAt: new Date(), processingStartedAt: null },
+      });
+      return result;
+    }
+    await prisma.webhookEvent.update({ where: { id: eventId }, data: { status: result.status, processedAt: new Date(), processingStartedAt: null, errorDetails: null, nextRetryAt: null } });
     return result;
   }
 
@@ -395,7 +464,7 @@ export class AutomationEngine {
     postbackPayload: string;
     interactionType?: 'POSTBACK' | 'QUICK_REPLY' | 'TEXT';
     rawPayload: unknown;
-  }): Promise<Result> {
+  }, attempt: MessagingAttempt = { dmSendAttempted: false }): Promise<Result> {
     let auditUserId: string | null = null;
     let auditAutomationId: string | null = null;
     let auditAction = 'UNKNOWN';
@@ -511,6 +580,7 @@ export class AutomationEngine {
       const followsNow = profile?.isUserFollowingBusiness === true;
 
       const sendFollowPrompt = async (): Promise<Result> => {
+        attempt.dmSendAttempted = true;
         const dm = await FollowGateService.sendFollowAsk({
           mode: 'direct',
           recipientId: senderId,
@@ -540,6 +610,7 @@ export class AutomationEngine {
           if (deliveryClaim.count !== 1) return finish({ status: 'IGNORED', message: 'Resource delivery is already processing or complete' });
         }
 
+        attempt.dmSendAttempted = true;
         const dm = await FollowGateService.sendResource({
           recipientId: senderId,
           instagramAccountId: realInstagramAccountId,

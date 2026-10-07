@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => {
     contact: { findUnique: vi.fn(), updateMany: vi.fn(), upsert: vi.fn() },
     automation: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     automationRun: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    webhookEvent: { updateMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    webhookEvent: { updateMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), findMany: vi.fn() },
     media: { findUnique: vi.fn(), upsert: vi.fn() },
     $transaction: vi.fn(),
   };
@@ -227,5 +227,103 @@ describe('AutomationEngine comment delivery', () => {
       status: 'IGNORED', message: 'Webhook event is already being processed or completed',
     });
     expect(mocks.messaging.sendPrivateReply).not.toHaveBeenCalled();
+  });
+});
+
+describe('messaging event claiming and retry safety', () => {
+  const messagingEvent = {
+    id: 'msg-1', instagramAccountId: 'ig-a', messagingSenderId: 'person', messagingPayload: 'CONFIRM_FOLLOW_auto-a',
+    interactionType: 'POSTBACK', retryCount: 0,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.prisma.auditLog.create.mockResolvedValue({});
+    mocks.prisma.metaConnection.findFirst.mockResolvedValue(connection);
+    mocks.prisma.contact.findUnique.mockResolvedValue(contact);
+    mocks.prisma.contact.updateMany.mockResolvedValue({ count: 1 });
+    mocks.prisma.automation.findFirst.mockResolvedValue(automation);
+    mocks.prisma.automation.update.mockResolvedValue({});
+    mocks.prisma.webhookEvent.findUnique.mockResolvedValue(messagingEvent);
+    mocks.prisma.webhookEvent.update.mockResolvedValue({});
+    mocks.prisma.webhookEvent.updateMany.mockResolvedValue({ count: 1 });
+    mocks.prisma.contact.upsert.mockResolvedValue({});
+    mocks.follow.upsertContact.mockResolvedValue(contact);
+    mocks.follow.sendResource.mockResolvedValue({ success: true, responseId: 'resource' });
+    mocks.follow.sendFollowAsk.mockResolvedValue({ success: true, responseId: 'follow-prompt' });
+    mocks.messaging.getUserProfile.mockResolvedValue({ username: 'fan', isUserFollowingBusiness: true });
+  });
+
+  it('claims due RETRYING and stale PROCESSING messaging events like comment events', async () => {
+    await AutomationEngine.processMessagingEvent('msg-1');
+    expect(mocks.prisma.webhookEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'msg-1',
+        // The claim must only match messaging rows, never comment events.
+        eventType: 'messaging',
+        OR: [
+          { status: 'RECEIVED' },
+          { status: 'RETRYING', nextRetryAt: { lte: expect.any(Date) } },
+          { status: 'PROCESSING', processingStartedAt: { lte: expect.any(Date) } },
+        ],
+      }),
+    }));
+  });
+
+  it('never replays a FAILED messaging event whose DM may already have been accepted', async () => {
+    // A transient-looking DM failure is ambiguous: Meta may have accepted the
+    // message before the error surfaced, so the event must go terminal instead
+    // of entering the RETRYING queue that could send a duplicate DM.
+    mocks.follow.sendResource.mockResolvedValue({ success: false, errorCategory: 'TRANSIENT', errorMessage: 'socket hang up' });
+    const result = await AutomationEngine.processMessagingEvent('msg-1');
+    expect(result).toMatchObject({ status: 'FAILED' });
+    expect(mocks.prisma.webhookEvent.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-1' },
+      data: expect.objectContaining({ status: 'FAILED', nextRetryAt: null }),
+    }));
+    const retryWrites = mocks.prisma.webhookEvent.update.mock.calls.filter(([, data]) => data?.status === 'RETRYING');
+    expect(retryWrites).toHaveLength(0);
+    expect(mocks.follow.sendResource).toHaveBeenCalledTimes(1);
+  });
+
+  it('schedules a bounded backoff retry only when the failure happened before any DM send', async () => {
+    // The conversation-state lookup fails before Meta is ever called.
+    mocks.messaging.getUserProfile.mockRejectedValue(new Error('connection pool timeout'));
+    const result = await AutomationEngine.processMessagingEvent('msg-1');
+    expect(result).toMatchObject({ status: 'FAILED', message: expect.stringContaining('connection pool timeout') });
+    expect(mocks.follow.sendResource).not.toHaveBeenCalled();
+    expect(mocks.prisma.webhookEvent.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-1' },
+      data: expect.objectContaining({ status: 'RETRYING', retryCount: 1, nextRetryAt: expect.any(Date) }),
+    }));
+  });
+
+  it('ignores follow-gate button tokens unless the event is a signed postback or quick reply', async () => {
+    // Same payload, three interaction types.
+    mocks.prisma.webhookEvent.findUnique.mockResolvedValue({ ...messagingEvent, messagingPayload: 'CONFIRM_FOLLOW_auto-a', interactionType: 'TEXT' });
+    await expect(AutomationEngine.processMessagingEvent('msg-1')).resolves.toMatchObject({
+      status: 'IGNORED', message: 'Button tokens are accepted only from signed postback events',
+    });
+
+    mocks.prisma.webhookEvent.findUnique.mockResolvedValue({ ...messagingEvent, interactionType: 'QUICK_REPLY' });
+    await expect(AutomationEngine.processMessagingEvent('msg-1')).resolves.toMatchObject({ status: 'PROCESSED' });
+    expect(mocks.follow.sendResource).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores at most a truncated copy of the actionable token in the audit log', async () => {
+    const long = `CONFIRM_FOLLOW_auto-a ${'x'.repeat(400)}`;
+    mocks.prisma.webhookEvent.findUnique.mockResolvedValue({ ...messagingEvent, messagingPayload: long });
+    await AutomationEngine.processMessagingEvent('msg-1');
+    const messagingAudits = mocks.prisma.auditLog.create.mock.calls
+      .map(([args]) => args.data)
+      .filter((data) => data.action === 'MESSAGING_PROCESSED');
+    expect(messagingAudits).toHaveLength(1);
+    const details = messagingAudits[0].details;
+    expect(details.payload).toHaveLength(160);
+    expect(details.payload).toContain('CONFIRM_FOLLOW_auto-a');
+    expect(JSON.stringify(details)).not.toContain('x'.repeat(200));
+    expect(JSON.stringify(details)).not.toContain('access-token');
+    // The second audit row of the delivery (the verified follow) stores only identifiers.
+    expect(JSON.stringify(mocks.prisma.auditLog.create.mock.calls.map(([args]) => args.data.details))).not.toContain('x'.repeat(200));
   });
 });
