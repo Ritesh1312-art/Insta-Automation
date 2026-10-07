@@ -133,6 +133,21 @@ describe('Studio statistics API', () => {
     expect(body).toMatchObject({ totalAutomations: 7, activeAutomations: 1 });
   });
 
+  it('reports the webhook-subscription status separately from the connection status', async () => {
+    seedOwner('owner');
+    // A healthy token whose Meta subscribe call failed: Studio must be able to
+    // warn about webhooks without presenting it as an expired connection.
+    seedConnection('owner', 'ig-owner', { connectionStatus: 'CONNECTED', webhookStatus: 'PARTIAL' });
+
+    expect((await studio('owner')).body).toMatchObject({ connectionStatus: 'CONNECTED', webhookStatus: 'PARTIAL' });
+  });
+
+  it('reports UNKNOWN webhook status when the workspace has no connection', async () => {
+    seedOwner('owner');
+
+    expect((await studio('owner')).body).toMatchObject({ connectionStatus: 'DISCONNECTED', webhookStatus: 'UNKNOWN' });
+  });
+
   it('reports the owner comment counter rather than retained webhook events', async () => {
     seedOwner('owner', { totalCommentsReceived: 0 });
     seedConnection('owner', 'ig-owner');

@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyOAuthState } from '@/lib/auth';
 import { metaRedirectUri, publicAppUrl } from '@/lib/app-url';
-import { MetaAuthService, META_OAUTH_SCOPES } from '@/services/meta/MetaAuthService';
+import { MetaAuthService, META_OAUTH_SCOPES, type ConnectedInstagramAccount } from '@/services/meta/MetaAuthService';
 import { encryptToken } from '@/lib/encryption';
 import { prisma } from '@/lib/prisma';
 import { InstagramMediaService, normalizeMediaType, resolveDisplayUrls } from '@/services/meta/InstagramMediaService';
 import { logAuthFailure } from '@/lib/auth-logging';
+import { describeWebhookSubscription, webhookSetupIncomplete } from '@/lib/meta-webhook-status';
+import { redactSecrets } from '@/lib/safe-error';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * A successful token exchange says nothing about whether Meta accepted the
+ * `subscribed_apps` calls. Only the rejected attempts are reported by the
+ * service, so a missing per-target result is reconstructed from the failure
+ * count (one warning → one target missing, two → both).
+ */
+function subscriptionTargets(account: ConnectedInstagramAccount) {
+  if (account.webhookSubscription) return account.webhookSubscription;
+  const failures = account.webhookSubscriptionWarnings?.length ?? 0;
+  return { page: failures === 0, instagram: failures < 2 };
+}
 
 export async function GET(req: NextRequest) {
   let appUrl: string;
@@ -36,6 +50,11 @@ export async function GET(req: NextRequest) {
     const expiresAt = account.expiresInSeconds
       ? new Date(Date.now() + account.expiresInSeconds * 1000)
       : null;
+    const targets = subscriptionTargets(account);
+    const webhookSubscription = describeWebhookSubscription(targets.page, targets.instagram);
+    // The token exchange above succeeded, so the connection itself is healthy.
+    // Webhook-subscription gaps are stored separately and must not turn this
+    // into a token-expired/reconnect state on the dashboard.
     await prisma.metaConnection.upsert({
       where: { instagramAccountId: account.instagramAccountId },
       create: {
@@ -48,7 +67,8 @@ export async function GET(req: NextRequest) {
         accessTokenEncrypted: encryptToken(account.accessToken),
         scopes: [...META_OAUTH_SCOPES],
         expiresAt,
-        connectionStatus: account.webhookSubscriptionWarnings?.length ? 'ERROR' : 'CONNECTED',
+        connectionStatus: 'CONNECTED',
+        webhookStatus: webhookSubscription.status,
       },
       update: {
         userId,
@@ -59,16 +79,20 @@ export async function GET(req: NextRequest) {
         accessTokenEncrypted: encryptToken(account.accessToken),
         scopes: [...META_OAUTH_SCOPES],
         expiresAt,
-        connectionStatus: account.webhookSubscriptionWarnings?.length ? 'ERROR' : 'CONNECTED',
+        connectionStatus: 'CONNECTED',
+        webhookStatus: webhookSubscription.status,
       },
     });
 
-    if (account.webhookSubscriptionWarnings?.length) {
+    if (webhookSetupIncomplete(webhookSubscription.status)) {
       await prisma.auditLog.create({
         data: {
           userId,
           action: 'META_WEBHOOK_SUBSCRIPTION_WARNING',
-          details: { warnings: account.webhookSubscriptionWarnings.slice(0, 2) },
+          details: {
+            status: webhookSubscription.status,
+            warnings: (account.webhookSubscriptionWarnings ?? []).slice(0, 2).map((warning) => redactSecrets(warning)),
+          },
         },
       }).catch(() => undefined);
     }
@@ -109,7 +133,7 @@ export async function GET(req: NextRequest) {
     const destination = new URL('/dashboard', appUrl);
     destination.searchParams.set('connected', 'true');
     destination.searchParams.set('synced', String(syncedCount));
-    if (account.webhookSubscriptionWarnings?.length) destination.searchParams.set('webhookWarning', 'true');
+    if (webhookSetupIncomplete(webhookSubscription.status)) destination.searchParams.set('webhookWarning', 'true');
     return NextResponse.redirect(destination);
   } catch (error) {
     logAuthFailure('meta_oauth_callback', error);

@@ -17,6 +17,9 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:EAA|IGQ|IGA)[A-Za-z0-9_-]{16,}/g, REDACTED],
   // JWTs (session cookies, OAuth state).
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, REDACTED],
+  // Meta signed_request values (HMAC signature + base64url JSON payload) can
+  // be replayed against the data-deletion callback, so they never reach a log.
+  [/[A-Za-z0-9_-]{20,}[.]eyJ[A-Za-z0-9_-]{16,}/g, REDACTED],
   // Database connection strings carry credentials.
   [/\bpostgres(?:ql)?:\/\/[^\s"'`]+/gi, `postgresql://${REDACTED}`],
 ];

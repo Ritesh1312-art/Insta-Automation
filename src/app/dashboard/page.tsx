@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Activity, AlertTriangle, Camera, Film, MessageCircle, Send, Sparkles, Zap } from 'lucide-react';
 import { subscribeToStudioStatsRefresh } from '@/lib/studio-refresh';
+import { webhookSetupIncomplete } from '@/lib/meta-webhook-status';
 
 type StudioStats = {
   totalAutomations: number;
@@ -14,11 +15,13 @@ type StudioStats = {
   totalFailed: number;
   successRate: number;
   connectionStatus: string;
+  webhookStatus: string;
   instagramUsername: string | null;
   plan: string;
   monthlyDmQuota: number;
   dmsUsedThisMonth: number;
   subscriptionStatus: string;
+  role?: string;
 };
 
 type RecentRun = {
@@ -35,6 +38,7 @@ export default function DashboardOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState(false);
+  const [webhookWarning, setWebhookWarning] = useState(false);
 
   const latestRequest = useRef(0);
 
@@ -70,7 +74,9 @@ export default function DashboardOverview() {
   }, []);
 
   useEffect(() => {
-    setConnectionError(new URLSearchParams(window.location.search).get('error') === 'meta_connection_failed');
+    const params = new URLSearchParams(window.location.search);
+    setConnectionError(params.get('error') === 'meta_connection_failed');
+    setWebhookWarning(params.get('webhookWarning') === 'true');
     void load();
     // Refetch when Studio is revisited or becomes visible, or when flows or
     // analytics change elsewhere, so it never shows stale totals.
@@ -91,7 +97,17 @@ export default function DashboardOverview() {
 
   const linkedStatuses = ['CONNECTED', 'TOKEN_EXPIRING', 'TOKEN_EXPIRED', 'ERROR'];
   const connected = Boolean(stats && linkedStatuses.includes(stats.connectionStatus));
-  const reconnectRequired = stats?.connectionStatus === 'TOKEN_EXPIRED' || stats?.connectionStatus === 'ERROR';
+  // Token/connection state and webhook-subscription state are reported
+  // separately: a failed webhook subscribe on a healthy token must not tell the
+  // creator to reconnect Instagram.
+  const tokenExpired = stats?.connectionStatus === 'TOKEN_EXPIRED';
+  const connectionFailed = stats?.connectionStatus === 'ERROR';
+  const reconnectRequired = tokenExpired || connectionFailed;
+  // A webhook gap only matters while the connection itself is usable; when a
+  // reconnect is already being asked for, that instruction comes first.
+  const webhookSetupWarning = (webhookWarning || webhookSetupIncomplete(stats?.webhookStatus))
+    && connected
+    && !reconnectRequired;
   const quotaPercent = stats
     ? Math.min(100, Math.round((stats.dmsUsedThisMonth / Math.max(stats.monthlyDmQuota, 1)) * 100))
     : 0;
@@ -126,10 +142,33 @@ export default function DashboardOverview() {
         </div>
       </section>
 
-      {(connectionError || reconnectRequired) && (
+      {connectionError && (
         <div className="flex gap-2 rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{connectionError ? 'Meta ne connected Page/Instagram account return nahi kiya. Dobara connect karke Page aur Instagram dono select karo.' : 'Instagram token invalid ya expired hai. Automations resume karne ke liye reconnect karo.'}</span>
+          <span>Meta ne connected Page/Instagram account return nahi kiya. Dobara connect karke Page aur Instagram dono select karo.</span>
+        </div>
+      )}
+      {!connectionError && tokenExpired && (
+        <div className="flex gap-2 rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Instagram token invalid ya expired hai. Automations resume karne ke liye reconnect karo.</span>
+        </div>
+      )}
+      {!connectionError && !tokenExpired && connectionFailed && (
+        <div className="flex gap-2 rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Instagram connection error state mein hai. Dobara connect karke access confirm karo — token expire hone ka claim verified nahi hai.</span>
+        </div>
+      )}
+      {webhookSetupWarning && (
+        <div className="flex gap-2 rounded-2xl border border-amber-400/40 bg-amber-950/30 p-4 text-sm text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Instagram connection theek hai, lekin Meta webhook subscription poora nahi hua — naye comments/messages aane par automations trigger nahi honge. Reconnect karne ki zaroorat nahi hai.{' '}
+            {stats?.role === 'ADMIN'
+              ? <span><Link href="/dashboard/settings" className="underline">Settings</Link> se webhook subscription dobara karo.</span>
+              : <span>Admin/support se webhook subscription dobara karwao.</span>}
+          </span>
         </div>
       )}
       {error && <p role="alert" className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">{error}</p>}

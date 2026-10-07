@@ -1,5 +1,6 @@
 type AuthLogOperation =
   | 'login'
+  | 'session_lookup'
   | 'admin_login'
   | 'registration'
   | 'admin_setup'

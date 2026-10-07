@@ -20,17 +20,26 @@ type Where = Record<string, any>;
 
 export type ModelName =
   | 'user' | 'metaConnection' | 'media' | 'resource' | 'automation' | 'webhookEvent'
-  | 'automationRun' | 'contact' | 'automationContactState' | 'auditLog' | 'directUpiPayment';
+  | 'automationRun' | 'contact' | 'automationContactState' | 'auditLog' | 'directUpiPayment'
+  | 'metaDataDeletionRequest';
 
 type Relation =
   | { kind: 'one'; model: ModelName; field: string; references: string }
   | { kind: 'many'; model: ModelName; field: string; references: string };
+
+type Cascade = { model: ModelName; field: string; references: string };
 
 type ModelConfig = {
   defaults: () => Row;
   unique: string[][];
   relations?: Record<string, Relation>;
   updatedAt?: boolean;
+  /**
+   * Child rows the database removes with this row through `ON DELETE CASCADE`
+   * (see prisma/schema.prisma). PostgreSQL performs this itself; the double
+   * emulates it so deletion tests can assert the same end state.
+   */
+  cascades?: Cascade[];
 };
 
 const MODEL_CONFIG: Record<ModelName, ModelConfig> = {
@@ -52,11 +61,18 @@ const MODEL_CONFIG: Record<ModelName, ModelConfig> = {
   metaConnection: {
     defaults: () => ({
       facebookPageId: null, profilePictureUrl: null, accessTokenEncrypted: null, tokenType: 'BEARER', scopes: [],
-      expiresAt: null, connectionStatus: 'CONNECTED',
+      expiresAt: null, connectionStatus: 'CONNECTED', webhookStatus: 'UNKNOWN',
     }),
     unique: [['id'], ['instagramAccountId']],
     updatedAt: true,
     relations: { user: { kind: 'one', model: 'user', field: 'userId', references: 'id' } },
+    cascades: [
+      { model: 'media', field: 'instagramAccountId', references: 'instagramAccountId' },
+      { model: 'automation', field: 'instagramAccountId', references: 'instagramAccountId' },
+      { model: 'contact', field: 'instagramAccountId', references: 'instagramAccountId' },
+      { model: 'automationContactState', field: 'instagramAccountId', references: 'instagramAccountId' },
+      { model: 'webhookEvent', field: 'instagramAccountId', references: 'instagramAccountId' },
+    ],
   },
   media: {
     defaults: () => ({ caption: null, permalink: null, mediaUrl: null, thumbnailUrl: null }),
@@ -84,6 +100,7 @@ const MODEL_CONFIG: Record<ModelName, ModelConfig> = {
       metaConnection: { kind: 'one', model: 'metaConnection', field: 'instagramAccountId', references: 'instagramAccountId' },
       runs: { kind: 'many', model: 'automationRun', field: 'id', references: 'automationId' },
     },
+    cascades: [{ model: 'automationRun', field: 'automationId', references: 'id' }],
   },
   webhookEvent: {
     defaults: () => ({
@@ -129,6 +146,14 @@ const MODEL_CONFIG: Record<ModelName, ModelConfig> = {
   directUpiPayment: {
     defaults: () => ({ status: 'PENDING_REVIEW', approvedAt: null, reviewedBy: null, reviewNote: null }),
     unique: [['id'], ['utrNumber']],
+    updatedAt: true,
+  },
+  metaDataDeletionRequest: {
+    defaults: () => ({
+      status: 'PENDING', deletedConnections: 0, deletedMedia: 0, deletedAutomations: 0, deletedContacts: 0,
+      deletedWebhookEvents: 0, errorDetails: null, completedAt: null,
+    }),
+    unique: [['id'], ['metaUserId'], ['confirmationCode']],
     updatedAt: true,
   },
 };
@@ -495,6 +520,10 @@ export class FakePrisma {
   }
 
   private remove(model: ModelName, row: Row, context: TransactionContext | null) {
+    for (const cascade of MODEL_CONFIG[model].cascades ?? []) {
+      const children = this.tables[cascade.model].filter((child) => same(child[cascade.field], row[cascade.references]));
+      for (const child of children) this.remove(cascade.model, child, context);
+    }
     const index = this.tables[model].indexOf(row);
     if (index >= 0) this.tables[model].splice(index, 1);
     context?.undo.push(() => { this.tables[model].splice(Math.min(index, this.tables[model].length), 0, row); });

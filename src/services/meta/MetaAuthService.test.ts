@@ -43,6 +43,9 @@ describe('MetaAuthService', () => {
       metaUserId: 'meta-user', instagramAccountId: 'ig-id', facebookPageId: 'page-id',
       instagramUsername: 'creator', accessToken: 'page-token', expiresInSeconds: 5_000_000,
       webhookSubscriptionWarnings: [],
+      // Callers store the per-target outcome, so it must be reported even when
+      // everything succeeded.
+      webhookSubscription: { page: true, instagram: true },
     });
     expect(String(fetchMock.mock.calls[4][0])).toContain('/page-id/subscribed_apps');
     expect(String(fetchMock.mock.calls[4][0])).toContain('feed%2Cmessages%2Cmessaging_postbacks');
@@ -65,6 +68,8 @@ describe('MetaAuthService', () => {
     const account = await MetaAuthService.handleOAuthCallback('code', 'https://app.example.com/callback');
     expect(account.accessToken).toBe('page-token');
     expect(account.webhookSubscriptionWarnings).toEqual(['Instagram subscription unavailable']);
+    // The valid token is reported as accepted; only the Instagram subscription failed.
+    expect(account.webhookSubscription).toEqual({ page: true, instagram: false });
   });
 
   it('rejects OAuth when no professional Instagram account is connected', async () => {

@@ -299,6 +299,96 @@ describe('Studio overview page', () => {
     }
   });
 
+  it('warns about an incomplete webhook setup without telling the creator to reconnect', async () => {
+    signIn('owner');
+    seedOwner('owner');
+    // The token is fine: only Meta's subscribe call failed.
+    seedConnection('owner', 'ig-owner', { connectionStatus: 'CONNECTED', webhookStatus: 'PARTIAL' });
+
+    renderStudio();
+    await settle();
+    const { markup } = renderStudio();
+
+    expect(markup).toContain('webhook subscription poora nahi hua');
+    // Reconnecting would not fix a webhook gap, so the instruction must not appear.
+    expect(markup).not.toContain('Instagram token invalid ya expired hai');
+    expect(markup).not.toContain('Reconnect Instagram');
+    expect(markup).toContain('@owner_ig'); // the connection is still shown as linked
+  });
+
+  it('still asks for a reconnect when the token really expired', async () => {
+    signIn('owner');
+    seedOwner('owner');
+    seedConnection('owner', 'ig-owner', { connectionStatus: 'TOKEN_EXPIRED', webhookStatus: 'SUBSCRIBED' });
+
+    renderStudio();
+    await settle();
+    const { markup } = renderStudio();
+
+    expect(markup).toContain('Instagram token invalid ya expired hai');
+    expect(markup).toContain('Reconnect Instagram');
+    expect(markup).not.toContain('webhook subscription poora nahi hua');
+  });
+
+  it('keeps the reconnect instruction alone when the token expired and webhooks are also broken', async () => {
+    signIn('owner');
+    seedOwner('owner');
+    seedConnection('owner', 'ig-owner', { connectionStatus: 'TOKEN_EXPIRED', webhookStatus: 'FAILED' });
+
+    renderStudio();
+    await settle();
+    const { markup } = renderStudio();
+
+    expect(markup).toContain('Instagram token invalid ya expired hai');
+    expect(markup).toContain('Reconnect Instagram');
+    // Reconnecting is the prerequisite; the webhook note must not compete with it.
+    expect(markup).not.toContain('webhook subscription poora nahi hua');
+  });
+
+  it('describes an ERROR connection as an error instead of claiming the token expired', async () => {
+    signIn('owner');
+    seedOwner('owner');
+    seedConnection('owner', 'ig-owner', { connectionStatus: 'ERROR', webhookStatus: 'UNKNOWN' });
+
+    renderStudio();
+    await settle();
+    const { markup } = renderStudio();
+
+    expect(markup).toContain('connection error state mein hai');
+    expect(markup).not.toContain('Instagram token invalid ya expired hai');
+  });
+
+  it('shows the webhook warning the OAuth callback passed in the redirect', async () => {
+    signIn('owner');
+    seedOwner('owner');
+    seedConnection('owner', 'ig-owner', { connectionStatus: 'CONNECTED', webhookStatus: 'UNKNOWN' });
+    fakeWindow.location.search = '?connected=true&webhookWarning=true';
+
+    renderStudio();
+    await settle();
+    const { markup } = renderStudio();
+
+    expect(markup).toContain('webhook subscription poora nahi hua');
+    expect(markup).not.toContain('Reconnect Instagram');
+  });
+
+  it('offers admins a direct link to the webhook settings when the setup is incomplete', async () => {
+    signIn('admin');
+    seedOwner('admin', { role: 'ADMIN' });
+    seedConnection('admin', 'ig-admin', { connectionStatus: 'CONNECTED', webhookStatus: 'FAILED' });
+
+    renderStudio();
+    await settle();
+    const { tree } = renderStudio();
+
+    const links: string[] = [];
+    visitElements(tree, (element) => {
+      const href = (element.props as { href?: unknown }).href;
+      if (typeof href === 'string') links.push(href);
+    });
+    expect(links).toContain('/dashboard/settings');
+  });
+
   it('refetches when the tab becomes visible again and stays put while hidden', async () => {
     signIn('owner');
     seedOwner('owner');

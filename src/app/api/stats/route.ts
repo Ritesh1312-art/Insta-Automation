@@ -13,7 +13,7 @@ export async function GET() {
       prisma.metaConnection.findFirst({
         where: { userId: user.userId },
         orderBy: { createdAt: 'desc' },
-        select: { connectionStatus: true, instagramUsername: true, profilePictureUrl: true },
+        select: { connectionStatus: true, webhookStatus: true, instagramUsername: true, profilePictureUrl: true },
       }),
       // Same owner-only scope as GET /api/automations, so Studio always matches the Flows list.
       prisma.automation.count({ where: userFlowsWhere(user.userId) }),
@@ -46,6 +46,9 @@ export async function GET() {
       totalFailed,
       successRate: totalRuns ? Math.round(totalSuccess / totalRuns * 100) : 0,
       connectionStatus: connection?.connectionStatus || 'DISCONNECTED',
+      // Separate axis: a healthy token with a failed webhook subscribe is not
+      // an expired connection, and the dashboard warns about it differently.
+      webhookStatus: connection?.webhookStatus || 'UNKNOWN',
       instagramUsername: connection?.instagramUsername || null,
       profilePictureUrl: connection?.profilePictureUrl || null,
       plan: owner?.plan || 'FREE',

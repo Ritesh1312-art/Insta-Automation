@@ -1,6 +1,8 @@
 export const META_PAGE_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks'] as const;
 export const META_INSTAGRAM_WEBHOOK_FIELDS = ['comments', 'messages', 'messaging_postbacks'] as const;
 
+import { redactSecrets } from '@/lib/safe-error';
+
 export const META_OAUTH_SCOPES = [
   'instagram_basic',
   'instagram_manage_comments',
@@ -21,6 +23,8 @@ export interface ConnectedInstagramAccount {
   accessToken: string;
   expiresInSeconds?: number;
   webhookSubscriptionWarnings?: string[];
+  /** Per-target outcome of the webhook subscribe calls, so callers can store a truthful webhook status. */
+  webhookSubscription?: { page: boolean; instagram: boolean };
 }
 
 async function graphJson(url: string, init?: RequestInit) {
@@ -127,11 +131,17 @@ export class MetaAuthService {
       this.subscribeObject(page.id, META_PAGE_WEBHOOK_FIELDS, page.access_token, graphApiVersion),
       this.subscribeObject(account.id, META_INSTAGRAM_WEBHOOK_FIELDS, page.access_token, graphApiVersion),
     ]);
+    const webhookSubscription = {
+      page: subscriptionAttempts[0].status === 'fulfilled',
+      instagram: subscriptionAttempts[1].status === 'fulfilled',
+    };
     const webhookSubscriptionWarnings = subscriptionAttempts
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
       .map((result) => result.reason instanceof Error ? result.reason.message : 'Unknown subscription error');
     for (const warning of webhookSubscriptionWarnings) {
-      console.warn('One Meta webhook subscription target was unavailable:', warning);
+      // The token is only ever sent in the Authorization header; Graph error
+      // text is still redacted before logging in case a proxy echoes the request.
+      console.warn('One Meta webhook subscription target was unavailable:', redactSecrets(warning));
     }
 
     return {
@@ -143,6 +153,7 @@ export class MetaAuthService {
       accessToken: page.access_token,
       expiresInSeconds,
       webhookSubscriptionWarnings,
+      webhookSubscription,
     };
   }
 }

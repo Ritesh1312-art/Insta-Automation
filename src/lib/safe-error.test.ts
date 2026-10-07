@@ -20,6 +20,16 @@ describe('redactSecrets', () => {
     expect(redacted).toContain(`access_token=${REDACTED}&fields=id`);
   });
 
+  it('redacts Meta signed_request values without touching ordinary prose', () => {
+    const signed = 'q3YtT8vE1kQ2mZ4nR6sP8uW0xA2cD4fG6hJ8kL0mN2o.eyJhbGdvcml0aG0iOiJITUFDLVNIQTI1NiIsInVzZXJfaWQiOiJtZXRhLXVzZXIifQ';
+    const redacted = redactSecrets(`delete failed for ${signed} on retry`);
+    expect(redacted).not.toContain('eyJhbGdvcml0aG0iOiJITUFDLVNIQTI1NiIsInVzZXJfaWQiOiJtZXRhLXVzZXIifQ');
+    expect(redacted).toContain(REDACTED);
+    expect(redacted).toContain('delete failed for');
+    // Version strings, file names, and sentence punctuation stay readable.
+    expect(redactSecrets('Deployed v26.0 in 3.5s. See docs/release-notes.md')).toBe('Deployed v26.0 in 3.5s. See docs/release-notes.md');
+  });
+
   it('ignores empty or very short secret values instead of shredding ordinary text', () => {
     expect(redactSecrets('the quota was reached', ['', null, undefined, 'the'])).toBe('the quota was reached');
   });

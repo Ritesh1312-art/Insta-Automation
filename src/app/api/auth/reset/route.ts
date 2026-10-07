@@ -35,8 +35,11 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
     await prisma.user.update({
-      where: { email: normalizedEmail },
-      data: { passwordHash: await bcrypt.hash(password, 12) },
+      where: { id: user.id },
+      // Same central session design as the OTP recovery flow: bumping
+      // sessionVersion revokes every session token issued for the old password,
+      // because requireSessionUser() compares the token against this counter.
+      data: { passwordHash: await bcrypt.hash(password, 12), sessionVersion: { increment: 1 } },
     });
     return NextResponse.json({ success: true, message: 'Password updated successfully' });
   } catch (error) {
