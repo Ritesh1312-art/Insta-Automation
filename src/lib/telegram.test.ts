@@ -14,8 +14,10 @@ import {
   isValidTelegramChatId,
   paymentReviewKeyboard,
   paymentTelegramText,
+  redactTelegramToken,
   resolveTelegramConfig,
   sendTelegramMessageTo,
+  TelegramDestinationError,
   telegramPairingCode,
   verifyTelegramWebhookSecret,
 } from './telegram';
@@ -112,5 +114,87 @@ describe('Telegram API integration', () => {
       { text: '✅ Approve', callback_data: 'PAY_APPROVE:payment-1' },
       { text: '❌ Reject', callback_data: 'PAY_REJECT:payment-1' },
     ]]);
+  });
+});
+
+describe('Telegram bot token redaction', () => {
+  it('redacts the token from URLs, bare tokens, and API paths', () => {
+    const withUrl = redactTelegramToken(`request to https://api.telegram.org/bot${token}/sendMessage failed`, token);
+    expect(withUrl).not.toContain(token);
+    expect(withUrl).toContain('api.telegram.org/bot[REDACTED]/sendMessage');
+    expect(redactTelegramToken(`echo ${token} please`, token)).not.toContain(token);
+    expect(redactTelegramToken('no secrets here', token)).toBe('no secrets here');
+    // Empty token must not shred the text.
+    expect(redactTelegramToken('plain message', '')).toBe('plain message');
+  });
+
+  it('never leaks the token when fetch rejects with a URL-bearing network error', async () => {
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', token);
+    vi.stubEnv('TELEGRAM_CHAT_ID', '98765');
+    // Undici-style failure: the message embeds the full request URL, which
+    // contains the bot token in its path.
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(
+      new TypeError(`fetch failed: https://api.telegram.org/bot${token}/sendMessage`),
+    ));
+    const error = await sendTelegramMessageTo('98765', 'hello').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TelegramDestinationError);
+    const message = (error as Error).message;
+    expect(message).toContain('request failed');
+    expect(message).not.toContain(token);
+    expect(message).not.toContain('api.telegram.org/bot123456');
+  });
+
+  it('never leaks the token when fetch rejects with a non-Error value', async () => {
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', token);
+    vi.stubEnv('TELEGRAM_CHAT_ID', '98765');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(`socket hangup ${token}`));
+    const error = await sendTelegramMessageTo('98765', 'hello').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TelegramDestinationError);
+    expect((error as Error).message).not.toContain(token);
+  });
+
+  it('redacts the token from Telegram API error descriptions', async () => {
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', token);
+    vi.stubEnv('TELEGRAM_CHAT_ID', '98765');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: false, description: `Unauthorized: session ${token} is invalid`,
+    }), { status: 401 })));
+    const error = await getTelegramBotIdentity(token).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain(token);
+    expect((error as Error).message).toContain('[REDACTED]');
+  });
+
+  it('reports unreadable responses without echoing the body', async () => {
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', token);
+    vi.stubEnv('TELEGRAM_CHAT_ID', '98765');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>bad gateway</html>', {
+      status: 502, headers: { 'content-type': 'text/html' },
+    })));
+    await expect(getTelegramBotIdentity(token)).rejects.toThrow('unreadable response (HTTP 502)');
+  });
+
+  it('still surfaces the human-actionable guidance for known destination errors', async () => {
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', token);
+    vi.stubEnv('TELEGRAM_CHAT_ID', '98765');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: false, description: "Forbidden: bot can't send messages to bots",
+    }), { status: 403 })));
+    const error = await sendTelegramMessageTo('123456', 'hello').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TelegramDestinationError);
+    expect((error as Error).message).toContain('/id');
+    expect((error as Error).message).not.toContain(token);
+  });
+
+  it('keeps the bot token in the URL path and out of the request body', async () => {
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', token);
+    vi.stubEnv('TELEGRAM_CHAT_ID', '98765');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sendTelegramMessageTo('98765', 'hello');
+    const [url, init] = fetchMock.mock.calls[0] as [string, { body: string; headers: Record<string, string> }];
+    expect(url).toBe(`https://api.telegram.org/bot${token}/sendMessage`);
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(init.body).not.toContain(token);
   });
 });

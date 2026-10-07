@@ -79,6 +79,24 @@ export class TelegramDestinationError extends Error {
   }
 }
 
+const TELEGRAM_REDACTED = '[REDACTED]';
+
+/**
+ * The bot token is part of the Telegram Bot API URL path
+ * (https://api.telegram.org/bot<token>/<method>), so network failures and API
+ * error strings can echo the full URL. Every error that leaves this module is
+ * scrubbed of the token first, so logs and API responses never leak it.
+ */
+export function redactTelegramToken(text: string, botToken: string): string {
+  let result = text;
+  const token = botToken.trim();
+  if (token) {
+    result = result.split(`bot${token}`).join(`bot${TELEGRAM_REDACTED}`);
+    result = result.split(token).join(TELEGRAM_REDACTED);
+  }
+  return result.replace(/api\.telegram\.org\/bot[^\s/"']*/gi, `api.telegram.org/bot${TELEGRAM_REDACTED}`);
+}
+
 /**
  * Human-actionable guidance for the destination errors Telegram returns, so the
  * dashboard explains the fix instead of surfacing a raw API string.
@@ -141,15 +159,35 @@ async function telegramApi<T = Record<string, unknown>>(
   body: Record<string, unknown>,
 ): Promise<T> {
   if (!isValidTelegramBotToken(botToken)) throw new Error('Telegram bot token is missing or invalid');
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    cache: 'no-store',
-  });
-  const result = await response.json();
+  // The token stays in the URL path (that is how the Bot API authenticates);
+  // it is never moved into a body or header, and never allowed to leak.
+  const url = `https://api.telegram.org/bot${botToken}/${method}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    // fetch() failures can embed the request URL — which contains the bot
+    // token — in the message or cause chain. Never propagate them raw.
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Telegram ${method} request failed: ${redactTelegramToken(reason, botToken)}`);
+  }
+  let result: { ok?: boolean; description?: unknown; result?: T };
+  try {
+    result = await response.json();
+  } catch {
+    // Do not echo a non-JSON body (proxy error pages can carry internals).
+    throw new Error(`Telegram ${method} returned an unreadable response (HTTP ${response.status})`);
+  }
   if (!response.ok || !result.ok) {
-    throw new Error(result.description || `Telegram ${method} failed`);
+    const description = typeof result.description === 'string' && result.description
+      ? result.description
+      : `Telegram ${method} failed`;
+    throw new Error(redactTelegramToken(description, botToken));
   }
   return result.result as T;
 }
@@ -197,7 +235,9 @@ export async function sendTelegramMessageTo(chatId: string, text: string, option
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Telegram sendMessage failed';
-    throw new TelegramDestinationError(explainTelegramSendError(message, { ...config, chatId }));
+    // The underlying error may embed the API URL; scrub the token before the
+    // message is shown in the dashboard or written to logs.
+    throw new TelegramDestinationError(explainTelegramSendError(redactTelegramToken(message, config.botToken), { ...config, chatId }));
   }
 }
 
@@ -275,7 +315,16 @@ export async function notifyTelegramPaymentSubmitted(payment: DirectUpiPaymentRe
     });
     return true;
   } catch (error) {
-    console.error('Telegram payment notification failed:', error instanceof Error ? error.message : error);
+    const message = error instanceof Error ? error.message : String(error);
+    // `config` is scoped to the try block; re-resolve it for redaction, and
+    // never let redaction itself throw (config resolution may be the failure).
+    let botToken = '';
+    try {
+      botToken = (await resolveTelegramConfig()).botToken;
+    } catch {
+      botToken = '';
+    }
+    console.error('Telegram payment notification failed:', redactTelegramToken(message, botToken));
     return false;
   }
 }

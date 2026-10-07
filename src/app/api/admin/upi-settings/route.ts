@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isValidUpiId } from '@/lib/upi';
+import { validateCustomQrUrl } from '@/lib/upi-qr';
 import { resolveCheckoutUpi } from '@/lib/upi-server';
 import { isAuthError, requireAdmin } from '@/lib/require-admin';
 
@@ -32,13 +33,16 @@ export async function POST(req: Request) {
     if (!upiId || !isValidUpiId(upiId)) {
       return NextResponse.json({ error: 'A valid Admin UPI ID is required (example: name@okaxis)' }, { status: 400 });
     }
-    if (qrCodeUrl && !/^https:\/\//i.test(qrCodeUrl)) {
-      return NextResponse.json({ error: 'Custom QR URL must use HTTPS' }, { status: 400 });
+    // Reject URLs the Content-Security-Policy would block in the browser, so a
+    // broken custom QR is caught at save time instead of at checkout.
+    const qrValidation = validateCustomQrUrl(qrCodeUrl);
+    if (!qrValidation.ok) {
+      return NextResponse.json({ error: qrValidation.error }, { status: 400 });
     }
 
     await prisma.user.updateMany({
       where: { role: 'ADMIN' },
-      data: { adminUpiId: upiId, adminQrCodeUrl: qrCodeUrl },
+      data: { adminUpiId: upiId, adminQrCodeUrl: qrValidation.url },
     });
 
     return NextResponse.json({

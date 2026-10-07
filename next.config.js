@@ -1,10 +1,19 @@
 /** @type {import('next').NextConfig} */
 const isDevelopment = process.env.NODE_ENV === 'development';
+// Hosts allowed to serve the admin's custom UPI QR image. Opt-in only — the
+// CSP is never broadened to a blanket `https:`. Read at build/deploy time.
+// Example: UPI_QR_ALLOWED_IMAGE_HOSTS="qr.example.com, *.cdn.example.com"
+const qrImageHosts = (process.env.UPI_QR_ALLOWED_IMAGE_HOSTS || '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase())
+  .map((entry) => entry.replace(/^https:\/\//, '').replace(/\/.*$/, ''))
+  .filter((entry) => entry.length > 0 && !entry.includes(' '))
+  .map((host) => `https://${host}`);
 const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.cdninstagram.com https://*.fbcdn.net",
+  `img-src 'self' data: blob: https://*.cdninstagram.com https://*.fbcdn.net${qrImageHosts.length ? ` ${qrImageHosts.join(' ')}` : ''}`,
   "font-src 'self' data:",
   "connect-src 'self'",
   "media-src 'self' https://*.cdninstagram.com https://*.fbcdn.net",

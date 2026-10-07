@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CreditCard, CheckCircle2, XCircle } from 'lucide-react';
-import { formatPaiseAsInr } from '@/lib/plans';
+import { formatPaiseAsInr, verifiedRevenuePaise } from '@/lib/plans';
 
 type Payment = {
   id: string;
@@ -53,7 +53,8 @@ export default function AdminPaymentsPage() {
     await load();
   };
 
-  const revenue = payments.filter((item) => item.status === 'VERIFIED').reduce((sum, item) => sum + item.amount, 0);
+  // amount is stored in paise; the total must be formatted as INR, not rupees.
+  const revenue = verifiedRevenuePaise(payments);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
@@ -66,7 +67,7 @@ export default function AdminPaymentsPage() {
         </div>
         <div className="rounded-2xl border border-purple-800/60 bg-purple-950/60 px-5 py-3 text-right">
           <span className="text-xs font-semibold uppercase text-slate-400">Verified revenue</span>
-          <p className="text-2xl font-extrabold text-purple-300">₹{revenue.toLocaleString('en-IN')}</p>
+          <p className="text-2xl font-extrabold text-purple-300">{formatPaiseAsInr(revenue)}</p>
         </div>
       </div>
 

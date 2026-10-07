@@ -2,8 +2,6 @@
 
 import React, { useRef, useEffect, type CSSProperties } from "react";
 
-const useIsStaticRenderer = () => false;
-
 interface KineticGridProps {
     background?: string;
     dotColor?: string;
@@ -51,7 +49,6 @@ export default function KineticGrid(props: KineticGridProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const mouseRef = useRef({ x: -9999, y: -9999, active: false });
     const trailRef = useRef<{ x: number; y: number; t: number }[]>([]);
-    const isStatic = useIsStaticRenderer();
 
     useEffect(() => {
         const host = hostRef.current;
@@ -111,40 +108,6 @@ export default function KineticGrid(props: KineticGridProps) {
             }
         };
 
-        const drawStatic = () => {
-            ctx.clearRect(0, 0, W, H);
-            ctx.globalAlpha = 0.14;
-            ctx.strokeStyle = lineColor;
-            ctx.lineWidth = 0.75;
-            for (let c = 0; c < cols.length; c++) {
-                for (let rIdx = 0; rIdx < cols[c].length; rIdx++) {
-                    const d = cols[c][rIdx];
-                    const right = cols[c + 1]?.[rIdx];
-                    const down = cols[c]?.[rIdx + 1];
-                    if (right) {
-                        ctx.beginPath();
-                        ctx.moveTo(d.hx, d.hy);
-                        ctx.lineTo(right.hx, right.hy);
-                        ctx.stroke();
-                    }
-                    if (down) {
-                        ctx.beginPath();
-                        ctx.moveTo(d.hx, d.hy);
-                        ctx.lineTo(down.hx, down.hy);
-                        ctx.stroke();
-                    }
-                }
-            }
-            ctx.globalAlpha = 0.4;
-            ctx.fillStyle = dotColor;
-            for (const d of dots) {
-                ctx.beginPath();
-                ctx.arc(d.hx, d.hy, 1.2, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-            ctx.globalAlpha = 1;
-        };
-
         build();
 
         const ro =
@@ -152,15 +115,9 @@ export default function KineticGrid(props: KineticGridProps) {
                 ? new ResizeObserver((entries) => {
                       const cr = entries[0]?.contentRect;
                       build(cr?.width, cr?.height);
-                      if (isStatic) drawStatic();
                   })
                 : null;
         ro?.observe(host);
-
-        if (isStatic) {
-            drawStatic();
-            return () => ro?.disconnect();
-        }
 
         const setMouse = (clientX: number, clientY: number) => {
             const r = canvas.getBoundingClientRect();
@@ -311,7 +268,6 @@ export default function KineticGrid(props: KineticGridProps) {
         radius,
         strength,
         trail,
-        isStatic,
     ]);
 
     return (

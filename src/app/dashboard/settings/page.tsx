@@ -26,6 +26,7 @@ export default function SettingsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminUpiId, setAdminUpiId] = useState('');
   const [adminQrCodeUrl, setAdminQrCodeUrl] = useState('');
+  const [qrPreviewFellBack, setQrPreviewFellBack] = useState(false);
   const [upiSaveStatus, setUpiSaveStatus] = useState('');
   const [telegramToken, setTelegramToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
@@ -42,6 +43,10 @@ export default function SettingsPage() {
     setTelegramStatus(data);
     setTelegramChatId(data.chatId || '');
   };
+
+  useEffect(() => {
+    setQrPreviewFellBack(false);
+  }, [adminQrCodeUrl, adminUpiId]);
 
   useEffect(() => {
     fetch('/api/auth/me').then((response) => response.json()).then((data) => {
@@ -133,9 +138,9 @@ export default function SettingsPage() {
             <div className="grid items-start gap-4 md:grid-cols-[1fr_auto]">
               <div className="space-y-4">
                 <label className="block text-xs font-semibold text-slate-300">Admin UPI ID<input value={adminUpiId} onChange={(event) => setAdminUpiId(event.target.value)} placeholder="name@okaxis" className={`${inputClass} mt-1 font-mono`} /></label>
-                <label className="block text-xs font-semibold text-slate-300">Custom QR URL (optional)<input value={adminQrCodeUrl} onChange={(event) => setAdminQrCodeUrl(event.target.value)} placeholder="Leave blank for automatic QR" className={`${inputClass} mt-1 font-mono`} /></label>
+                <label className="block text-xs font-semibold text-slate-300">Custom QR URL (optional)<input value={adminQrCodeUrl} onChange={(event) => setAdminQrCodeUrl(event.target.value)} placeholder="Leave blank for automatic QR" className={`${inputClass} mt-1 font-mono`} /><span className="mt-1 block text-[11px] font-normal text-slate-500">HTTPS image URL on a host allowlisted via the <code className="text-slate-400">UPI_QR_ALLOWED_IMAGE_HOSTS</code> env variable (set at deploy time), or a local path like <code className="text-slate-400">/qr.png</code>. Other external URLs are blocked by the browser content security policy.</span></label>
               </div>
-              {adminUpiId && <div className="mx-auto h-40 w-40 rounded-2xl bg-white p-2"><img src={adminQrCodeUrl || `/api/billing/upi-qr?plan=PREMIUM&t=${encodeURIComponent(adminUpiId)}`} alt="UPI QR preview" className="h-full w-full object-contain" /></div>}
+              {adminUpiId && <div className="mx-auto h-40 w-40 rounded-2xl bg-white p-2"><img src={adminQrCodeUrl && !qrPreviewFellBack ? adminQrCodeUrl : `/api/billing/upi-qr?plan=PREMIUM&t=${encodeURIComponent(adminUpiId)}`} onError={() => setQrPreviewFellBack(true)} alt="UPI QR preview" className="h-full w-full object-contain" /></div>}
             </div>
             <div className="flex flex-wrap items-center gap-4"><button onClick={saveUpiSettings} className="rounded-xl bg-purple-600 px-5 py-2.5 text-xs font-bold text-white">Save UPI settings</button>{upiSaveStatus && <span className="text-xs text-purple-300">{upiSaveStatus}</span>}</div>
           </section>

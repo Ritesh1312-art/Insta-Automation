@@ -38,6 +38,16 @@ Agar `pn` registered name se match nahi karta, PhonePe/GPay kabhi warning dete h
 
 `TELEGRAM_WEBHOOK_SECRET` mat daalo. App `AUTH_SECRET` se deterministic HMAC secret banati hai.
 
+## Custom UPI QR image (optional)
+
+Admin Settings mein "Custom QR URL" se tum apna QR image use kar sakte ho. Woh `<img>` ki tarah load hota hai, isliye browser Content-Security-Policy (`img-src`) us host ko allow kare — yeh blanket `https:` nahi banayi jaati.
+
+| Variable | Kaam |
+| --- | --- |
+| `UPI_QR_ALLOWED_IMAGE_HOSTS` | Comma-separated image hosts, e.g. `qr.example.com, *.cdn.example.com`. **Build/deploy time par set hona chahiye** (CSP `next.config.js` mein bake hoti hai) aur **rebuild/redeploy** ke baad naya host active hota hai. |
+
+Bina iske: same-origin path (jaise `public/qr.png` → `/qr.png`) hamesha kaam karta hai. Koi aur external URL save karne par API 400 error deti hai aur Settings mein reason batati hai.
+
 ## Vercel
 
 In Project Settings → Environment Variables, configure `ADMIN_LOGIN_IDENTIFIER` for both **Production** and **Preview**. Use the normalized identifier of the existing user whose database role is `ADMIN`. Keep it server-only (never prefix it with `NEXT_PUBLIC_`) and do not commit the production value.

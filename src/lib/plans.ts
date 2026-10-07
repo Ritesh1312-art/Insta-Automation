@@ -134,3 +134,15 @@ export function formatPaiseAsInr(amountPaise: number): string {
     minimumFractionDigits: amountPaise % 100 === 0 ? 0 : 2,
   }).format(amountPaise / 100);
 }
+
+/**
+ * DirectUpiPayment.amount is stored in paise (the submit route writes
+ * `plan.priceInr * 100` and never trusts a client amount). Summing verified
+ * payments therefore yields paise — always render the total through
+ * formatPaiseAsInr, never as raw rupees.
+ */
+export function verifiedRevenuePaise(payments: ReadonlyArray<{ amount: number; status: string }>): number {
+  return payments
+    .filter((payment) => payment.status === 'VERIFIED')
+    .reduce((sum, payment) => sum + payment.amount, 0);
+}

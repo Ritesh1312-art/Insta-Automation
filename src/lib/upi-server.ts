@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { publicUpiConfig } from '@/lib/upi';
+import { validateCustomQrUrl } from '@/lib/upi-qr';
 
 export async function resolveCheckoutUpi() {
   const envUpi = publicUpiConfig();
@@ -13,7 +14,10 @@ export async function resolveCheckoutUpi() {
       orderBy: { createdAt: 'asc' },
     });
     adminUpiId = admin?.adminUpiId?.trim() || '';
-    customQrUrl = admin?.adminQrCodeUrl?.trim() || '';
+    // Defense in depth: only serve a custom QR the CSP would actually allow,
+    // even if the stored value predates save-time validation.
+    const qrValidation = validateCustomQrUrl(admin?.adminQrCodeUrl?.trim() || '');
+    customQrUrl = qrValidation.ok ? qrValidation.url : '';
     adminName = admin?.name?.trim() || '';
   } catch {
     // Env-only fallback when the database is unavailable

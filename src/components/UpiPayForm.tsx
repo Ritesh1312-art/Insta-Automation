@@ -24,10 +24,10 @@ export default function UpiPayForm({
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [qrFailed, setQrFailed] = useState(false);
+  const [qrFellBack, setQrFellBack] = useState(false);
 
   useEffect(() => {
-    setQrFailed(false);
+    setQrFellBack(false);
   }, [plan.id, qrCodeUrl, upiId]);
 
   const upiUri = useMemo(
@@ -35,7 +35,10 @@ export default function UpiPayForm({
     [upiId, payeeName, plan]
   );
   const autoQrSrc = `/api/billing/upi-qr?plan=${encodeURIComponent(plan.id)}`;
-  const qrSrc = qrCodeUrl || autoQrSrc;
+  // If the custom QR fails to load (blocked by CSP, unreachable host), fall
+  // back to the auto-generated QR so checkout always shows a scannable code.
+  const showCustomQr = Boolean(qrCodeUrl) && !qrFellBack;
+  const qrSrc = showCustomQr ? (qrCodeUrl as string) : autoQrSrc;
 
   const copyUpi = async () => {
     if (!upiId) return;
@@ -92,18 +95,18 @@ export default function UpiPayForm({
 
       {upiId ? (
         <>
-          {!qrFailed && (
-            <div className="mx-auto flex h-48 w-48 flex-col items-center justify-center rounded-2xl bg-white p-3">
-              <img
-                src={qrSrc}
-                alt={`Pay ₹${plan.priceInr} to ${payeeName}`}
-                className="h-full w-full object-contain"
-                onError={() => setQrFailed(true)}
-              />
-            </div>
-          )}
+          <div className="mx-auto flex h-48 w-48 flex-col items-center justify-center rounded-2xl bg-white p-3">
+            <img
+              src={qrSrc}
+              alt={`Pay ₹${plan.priceInr} to ${payeeName}`}
+              className="h-full w-full object-contain"
+              onError={() => setQrFellBack(true)}
+            />
+          </div>
           <p className="text-center text-[11px] text-slate-500">
-            Auto QR · {payeeName} · ₹{plan.priceInr} locked in the code
+            {showCustomQr
+              ? `Custom QR · confirm ₹${plan.priceInr} in your UPI app before paying`
+              : `Auto QR · ${payeeName} · ₹${plan.priceInr} locked in the code`}
           </p>
           <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
             <div>

@@ -62,6 +62,9 @@ const MODEL_CONFIG: Record<ModelName, ModelConfig> = {
     defaults: () => ({ caption: null, permalink: null, mediaUrl: null, thumbnailUrl: null }),
     unique: [['id'], ['instagramMediaId']],
     updatedAt: true,
+    relations: {
+      metaConnection: { kind: 'one', model: 'metaConnection', field: 'instagramAccountId', references: 'instagramAccountId' },
+    },
   },
   resource: {
     defaults: () => ({ url: null, textContent: null }),
