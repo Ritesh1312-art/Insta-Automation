@@ -15,8 +15,31 @@ export type MessagingWebhookEvent = {
   senderId: string;
   postbackPayload: string;
   interactionType: 'POSTBACK' | 'QUICK_REPLY' | 'TEXT';
+  /** Meta's stable identifier (`mid`, or the IG change `id`). Lets a redelivery dedupe without collapsing two separate identical messages. */
+  providerEventId: string | null;
+  /** Event timestamp in the payload; fingerprint for dedup when no provider id exists. */
+  occurredAt: number | null;
   rawPayload: unknown;
 };
+
+/** Only string/number payloads are actionable; object-shaped junk must never be stringified into the engine. */
+function isPrimitiveAction(value: unknown): value is string | number {
+  return (typeof value === 'string' && value.trim().length > 0) || typeof value === 'number';
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return value !== null && value !== undefined && Number.isFinite(numeric) ? numeric : null;
+}
+
+/** First non-empty stable identifier Meta attaches to a messaging event. */
+function firstProviderId(...candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) return String(candidate);
+  }
+  return null;
+}
 
 function asArray(value: unknown): Array<Record<string, any>> {
   return Array.isArray(value)
@@ -118,12 +141,14 @@ export class WebhookService {
         const action = message.postback?.payload
           || message.message?.quick_reply?.payload
           || message.message?.text;
-        if (!senderId || !action || senderId === recipientId) continue;
+        if (!senderId || !isPrimitiveAction(action) || senderId === recipientId) continue;
         events.push({
           instagramAccountId: recipientId,
           senderId,
           postbackPayload: String(action),
           interactionType,
+          providerEventId: firstProviderId(message.message?.mid, message.postback?.mid, message.referral?.mid),
+          occurredAt: toFiniteNumber(message.timestamp),
           rawPayload: payload,
         });
       }
@@ -133,21 +158,28 @@ export class WebhookService {
         const value = change.value && typeof change.value === 'object' ? change.value : null;
         if (!value || value.message?.is_echo) continue;
         const senderId = String(value.sender?.id || value.from?.id || value.from?.id_str || '');
-        const recipientId = String(value.recipient?.id || entryId);
+        const recipientId = String(value.recipient?.id || value.to?.id || entryId);
         const interactionType: MessagingWebhookEvent['interactionType'] = value.postback?.payload
           ? 'POSTBACK'
           : value.message?.quick_reply?.payload
             ? 'QUICK_REPLY'
             : 'TEXT';
+        // Instagram change payloads nest the body as `message.text.body`, page
+        // payloads as a plain `message.text` string.
+        const textBody = typeof value.message?.text === 'string' ? value.message.text : value.message?.text?.body;
         const action = value.postback?.payload
           || value.message?.quick_reply?.payload
-          || value.message?.text;
-        if (!senderId || !action || senderId === recipientId) continue;
+          || textBody;
+        if (!senderId || !isPrimitiveAction(action) || senderId === recipientId) continue;
         events.push({
           instagramAccountId: recipientId,
           senderId,
           postbackPayload: String(action),
           interactionType,
+          // Instagram change payloads carry the stable event id on `value.id`;
+          // page-style payloads attach the `mid` to the message or postback.
+          providerEventId: firstProviderId(value.message?.mid, value.postback?.mid, value.mid, value.id),
+          occurredAt: toFiniteNumber(value.time ?? entry.time),
           rawPayload: payload,
         });
       }

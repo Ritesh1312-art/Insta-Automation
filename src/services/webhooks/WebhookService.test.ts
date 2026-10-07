@@ -65,6 +65,55 @@ describe('WebhookService', () => {
     expect(WebhookService.parseMessagingEvents(make({ message: { text: 'DONE', is_echo: true } }))).toEqual([]);
   });
 
+  it('carries Meta stable message ids and timestamps for dedup', () => {
+    const payload = {
+      object: 'instagram',
+      entry: [{ id: 'page-1', messaging: [
+        { sender: { id: 'fan' }, recipient: { id: 'page-1' }, timestamp: 1727000000123, message: { mid: 'mid.$A', text: 'send' } },
+        { sender: { id: 'fan' }, recipient: { id: 'page-1' }, timestamp: 1727000099456, message: { mid: 'mid.$B', text: 'send' } },
+        { sender: { id: 'fan' }, recipient: { id: 'page-1' }, timestamp: 1727000010000, postback: { mid: 'mid.$C', payload: 'CONFIRM_FOLLOW_a' } },
+      ] }],
+    };
+    const events = WebhookService.parseMessagingEvents(payload);
+    expect(events).toHaveLength(3);
+    expect(events.map((event) => event.providerEventId)).toEqual(['mid.$A', 'mid.$B', 'mid.$C']);
+    expect(events[0].occurredAt).toBe(1727000000123);
+    // Two separate identical texts keep distinct provider ids; the engine must not collapse them.
+    expect(events[0].providerEventId).not.toBe(events[1].providerEventId);
+    expect(events[0].postbackPayload).toBe(events[1].postbackPayload);
+  });
+
+  it('reads Instagram change-shaped messaging payloads and skips self, echo, and non-actionable events', () => {
+    const igChanges = {
+      object: 'instagram',
+      entry: [{ id: 'ig-1', time: 1727000000, changes: [
+        { field: 'messages', value: { id: 'ig-event-1', from: { id: 'fan' }, to: { id: 'ig-1' }, message: { text: { body: 'send' } } } },
+        // Echo of the bot's own reply must never re-enter the pipeline.
+        { field: 'messages', value: { id: 'ig-event-echo', from: { id: 'ig-1' }, to: { id: 'fan' }, message: { is_echo: true, text: { body: 'bot says hi' } } } },
+        // Non-actionable receipts and unrelated fields carry no text to process.
+        { field: 'messages', value: { id: 'ig-event-read', from: { id: 'fan' }, to: { id: 'ig-1' }, read: { mid: 'x' } } },
+        { field: 'others', value: { id: 'other' } },
+      ] }],
+    };
+    const events = WebhookService.parseMessagingEvents(igChanges);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      instagramAccountId: 'ig-1', senderId: 'fan', postbackPayload: 'send',
+      interactionType: 'TEXT', providerEventId: 'ig-event-1', occurredAt: 1727000000,
+    });
+
+    // The page acting as its own sender (echo loop) is ignored in the messaging shape too.
+    const self = { entry: [{ id: 'page-1', messaging: [{ sender: { id: 'page-1' }, recipient: { id: 'page-1' }, message: { mid: 'm', text: 'loop' } }] }] };
+    expect(WebhookService.parseMessagingEvents(self)).toEqual([]);
+
+    // Malformed shapes never throw and never produce events.
+    expect(WebhookService.parseMessagingEvents(undefined)).toEqual([]);
+    expect(WebhookService.parseMessagingEvents('string')).toEqual([]);
+    expect(WebhookService.parseMessagingEvents({ entry: [null, 'x', { id: '' }] })).toEqual([]);
+    expect(WebhookService.parseMessagingEvents({ entry: [{ id: 'p', messaging: 'broken' }] })).toEqual([]);
+    expect(WebhookService.parseMessagingEvents({ entry: [{ id: 'p', messaging: [{ sender: { id: 'fan' }, recipient: { id: 'p' }, message: { text: { nested: 'junk' } } }] }] })).toEqual([]);
+  });
+
   it('handles malformed payloads without throwing', () => {
     expect(WebhookService.parseCommentEvents(null)).toEqual([]);
     expect(WebhookService.parseCommentEvents({ entry: 'bad' })).toEqual([]);

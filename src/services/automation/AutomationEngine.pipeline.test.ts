@@ -40,6 +40,8 @@ function acceptEverything(call: GraphCall) {
 
 const privateReplies = () => graph.calls.filter((call) => call.path === `/v21.0/${IG}/messages`);
 const publicReplies = () => graph.calls.filter((call) => call.path.endsWith('/replies'));
+const commentDms = () => graph.calls.filter((call) => call.body?.recipient?.comment_id);
+const directDms = () => graph.calls.filter((call) => call.method === 'POST' && call.body?.recipient?.id);
 
 function seedWorkspace(flow: Record<string, unknown> = {}, owner: Record<string, unknown> = {}) {
   state.db.seed('user', {
@@ -339,6 +341,29 @@ describe('idempotency', () => {
     expect(owner()).toMatchObject({ totalCommentsReceived: 1, dmsUsedThisMonth: 1 });
   });
 
+  it('keeps one private reply per comment even when oneDeliveryPerComment is disabled', async () => {
+    // Meta allows exactly one private reply per comment (BUSINESS.md), so the
+    // flow-level idempotency key enforces the delivery rule regardless of how
+    // the optional per-comment flag is set. Disabling per-USER dedup proves the
+    // comment-level claim alone blocks the duplicate.
+    seedWorkspace({ oneDeliveryPerComment: false, oneDeliveryPerUser: false });
+    const payload = comment();
+    const first = await AutomationEngine.ingestCommentEvent(payload);
+    await expect(AutomationEngine.processWebhookEvent(first.id)).resolves.toMatchObject({ status: 'PROCESSED' });
+    const redelivery = await AutomationEngine.ingestCommentEvent(payload);
+    expect(redelivery.id).toBe(first.id); // the provider comment id dedupes the delivery itself
+    await expect(AutomationEngine.processWebhookEvent(redelivery.id)).resolves.toEqual({
+      status: 'IGNORED', message: 'Webhook event is already being processed or completed',
+    });
+    // A second event row for the same comment (Page feed subscription shape)
+    // still cannot send a second DM.
+    await expect(AutomationEngine.processCommentEvent({ ...payload, instagramAccountId: 'page-creator' })).resolves.toEqual({
+      status: 'IGNORED', message: 'Duplicate comment delivery prevented',
+    });
+    expect(privateReplies()).toHaveLength(1);
+    expect(runs()).toHaveLength(1);
+  });
+
   it('resumes a retrying run without double-counting the trigger', async () => {
     seedWorkspace();
     let attempts = 0;
@@ -355,5 +380,323 @@ describe('idempotency', () => {
     expect(flow()).toMatchObject({ totalTriggers: 1, totalSuccess: 1, totalFailed: 0 });
     expect(owner().dmsUsedThisMonth).toBe(1);
     expect(publicReplies()).toHaveLength(1);
+  });
+});
+
+function seedMessagingEvent(senderId: string, overrides: Record<string, unknown> = {}) {
+  return state.db.seed('webhookEvent', {
+    eventId: `msg:mid.${senderId}.${Math.random()}`, eventType: 'messaging', instagramAccountId: IG,
+    messagingSenderId: senderId, messagingPayload: 'send', interactionType: 'TEXT',
+    rawPayload: {}, status: 'RECEIVED', ...overrides,
+  });
+}
+
+/** Conversation state the follow-gate requires for messaging replies to be actionable. */
+function seedGateConversation(igsid: string) {
+  state.db.seed('contact', { instagramAccountId: IG, igsid, username: 'fan', lastAutomationId: 'flow', followGateStatus: 'NEW' });
+  state.db.seed('automationContactState', { automationId: 'flow', instagramAccountId: IG, igsid, status: 'NEW' });
+}
+
+describe('messaging events: dedupe, dispatch, and claim recovery', () => {
+  it('routes each due event to its own handler, never the wrong pipeline', async () => {
+    seedWorkspace();
+    const commentEvent = state.db.seed('webhookEvent', {
+      eventId: 'comment:ig-j1', eventType: 'comments', instagramAccountId: IG, mediaId: 'reel-1', commentId: 'j-comment-1',
+      commenterId: 'fan-j1', commenterUsername: 'fanj1', commentText: 'guide', rawPayload: {}, status: 'RECEIVED',
+    });
+    const messagingEvent = seedMessagingEvent('fan-m1');
+    seedGateConversation('fan-m1');
+
+    const results = await AutomationEngine.processDueEvents();
+    expect(results).toHaveLength(2);
+
+    expect(state.db.row('webhookEvent', { id: commentEvent.id })).toMatchObject({ status: 'PROCESSED' });
+    const after = state.db.row('webhookEvent', { id: messagingEvent.id })!;
+    expect(after).toMatchObject({ status: 'PROCESSED', errorDetails: null });
+    expect(after.errorDetails).not.toBe('Incomplete comment event');
+
+    expect(commentDms()).toEqual([expect.objectContaining({ body: expect.objectContaining({ recipient: { comment_id: 'j-comment-1' } }) })]);
+    expect(directDms()).toEqual([expect.objectContaining({ body: expect.objectContaining({ recipient: { id: 'fan-m1' } }) })]);
+    // Only the comment path creates AutomationRuns; messaging never does.
+    expect(runs()).toHaveLength(1);
+    expect(runs()[0].webhookEventId).toBe(commentEvent.id);
+  });
+
+  it('refuses cross-type claims so the right handler still sees the event', async () => {
+    seedWorkspace();
+    seedGateConversation('fan-x1');
+    const messagingEvent = seedMessagingEvent('fan-x1', { eventId: 'msg:mid.x1' });
+    // The comment path must not claim (and terminalize) a messaging event…
+    await expect(AutomationEngine.processWebhookEvent(messagingEvent.id)).resolves.toEqual({
+      status: 'IGNORED', message: 'Webhook event is already being processed or completed',
+    });
+    expect(state.db.row('webhookEvent', { id: messagingEvent.id })).toMatchObject({ status: 'RECEIVED', processingStartedAt: null });
+    // …and the messaging path must not consume a comment event.
+    const commentEvent = await AutomationEngine.ingestCommentEvent(comment({ commenterId: 'fan-x2' }));
+    await expect(AutomationEngine.processMessagingEvent(commentEvent.id)).resolves.toEqual({
+      status: 'IGNORED', message: 'Messaging event already claimed',
+    });
+    expect(state.db.row('webhookEvent', { id: commentEvent.id })).toMatchObject({ status: 'RECEIVED' });
+    expect(graph.calls).toEqual([]);
+
+    // Both remain processable by their own handler.
+    await expect(AutomationEngine.processMessagingEvent(messagingEvent.id)).resolves.toMatchObject({ status: 'PROCESSED' });
+    await expect(AutomationEngine.processWebhookEvent(commentEvent.id)).resolves.toMatchObject({ status: 'PROCESSED' });
+  });
+
+  it('dedupes a repeated provider delivery by mid while keeping two identical texts apart', async () => {
+    // oneDeliveryPerUser off, so the ONLY dedupe left is the provider-event identity itself.
+    seedWorkspace({ oneDeliveryPerUser: false });
+    seedGateConversation('fan-m2');
+    const ingest = (providerEventId: string | null, occurredAt?: number) => AutomationEngine.ingestMessagingEvent({
+      instagramAccountId: IG, senderId: 'fan-m2', postbackPayload: 'send', interactionType: 'TEXT', providerEventId, occurredAt, rawPayload: {},
+    });
+
+    const first = await ingest('mid.$one');
+    const redelivery = await ingest('mid.$one');
+    expect(redelivery.id).toBe(first.id);
+    expect(events().filter((event) => event.eventType === 'messaging')).toHaveLength(1);
+
+    // A second, genuinely separate message with identical text must be its own event.
+    const second = await ingest('mid.$two');
+    expect(second.id).not.toBe(first.id);
+    expect(events().filter((event) => event.eventType === 'messaging')).toHaveLength(2);
+
+    await expect(AutomationEngine.processMessagingEvent(first.id)).resolves.toMatchObject({ status: 'PROCESSED' });
+    await expect(AutomationEngine.processMessagingEvent(second.id)).resolves.toMatchObject({ status: 'PROCESSED' });
+    expect(directDms()).toHaveLength(2);
+
+    // A third copy of mid.$one dedupes to the already-processed event: no new DM.
+    const again = await ingest('mid.$one');
+    expect(again.id).toBe(first.id);
+    await expect(AutomationEngine.processMessagingEvent(again.id)).resolves.toEqual({
+      status: 'IGNORED', message: 'Messaging event already claimed',
+    });
+    expect(directDms()).toHaveLength(2);
+    expect(events().filter((event) => event.eventType === 'messaging')).toHaveLength(2);
+  });
+
+  it('falls back to a timestamped content fingerprint when the provider sends no mid', async () => {
+    const ingest = (occurredAt?: number) => AutomationEngine.ingestMessagingEvent({
+      instagramAccountId: IG, senderId: 'fan-m3', postbackPayload: 'send', interactionType: 'TEXT', providerEventId: null, occurredAt, rawPayload: {},
+    });
+    const earlier = await ingest(1_700_000_000_000);
+    const later = await ingest(1_700_000_099_000);
+    const replay = await ingest(1_700_000_099_000);
+    expect(later.id).not.toBe(earlier.id); // same text, different moment -> distinct events
+    expect(replay.id).toBe(later.id); // redelivery of the same event -> deduped
+    expect(events()).toHaveLength(2);
+  });
+
+  it('absorbs the unique-constraint race when two copies of one delivery are ingested concurrently', async () => {
+    const insert = state.db.seed('webhookEvent', {
+      eventId: 'msg:mid.$race', eventType: 'messaging', instagramAccountId: IG, messagingSenderId: 'fan-r',
+      messagingPayload: 'send', interactionType: 'TEXT', rawPayload: {}, status: 'RECEIVED',
+    });
+    state.db.beforeOperation = (entry) => {
+      // Replay the losing side of a Postgres upsert race on the unique eventId.
+      if (entry.model === 'webhookEvent' && entry.operation === 'upsert') {
+        throw new FakePrismaError('P2002', 'Unique constraint failed on the fields: (eventId)', { target: ['eventId'] });
+      }
+    };
+    await expect(AutomationEngine.ingestMessagingEvent({
+      instagramAccountId: IG, senderId: 'fan-r', postbackPayload: 'send', interactionType: 'TEXT', providerEventId: 'mid.$race', rawPayload: {},
+    })).resolves.toMatchObject({ id: insert.id, status: 'RECEIVED' });
+    expect(events()).toHaveLength(1);
+  });
+
+  it('claims a messaging event exactly once while concurrent deliveries race', async () => {
+    seedWorkspace({ oneDeliveryPerUser: false });
+    seedGateConversation('fan-m4');
+    const event = seedMessagingEvent('fan-m4', { eventId: 'msg:mid.$claim' });
+    const results = await Promise.all([
+      AutomationEngine.processMessagingEvent(event.id),
+      AutomationEngine.processMessagingEvent(event.id),
+    ]);
+    expect(results.filter((result) => result.status === 'PROCESSED')).toHaveLength(1);
+    expect(results.filter((result) => result.message === 'Messaging event already claimed')).toHaveLength(1);
+    expect(directDms()).toHaveLength(1);
+  });
+
+  it('recovers a stale PROCESSING messaging event but never steals a fresh claim', async () => {
+    seedWorkspace();
+    seedGateConversation('fan-m5');
+    const stuck = seedMessagingEvent('fan-m5', { eventId: 'msg:mid.stuck', status: 'PROCESSING', processingStartedAt: new Date(Date.now() - 11 * 60_000) });
+    const fresh = seedMessagingEvent('fan-m5', { eventId: 'msg:mid.fresh', status: 'PROCESSING', processingStartedAt: new Date(Date.now() - 60_000) });
+    await expect(AutomationEngine.processMessagingEvent(stuck.id)).resolves.toMatchObject({ status: 'PROCESSED' });
+    await expect(AutomationEngine.processMessagingEvent(fresh.id)).resolves.toEqual({
+      status: 'IGNORED', message: 'Messaging event already claimed',
+    });
+    expect(directDms()).toHaveLength(1);
+  });
+
+  it('processes due RETRYING messaging events only after their backoff elapses', async () => {
+    seedWorkspace();
+    seedGateConversation('fan-m6');
+    const retrying = seedMessagingEvent('fan-m6', { eventId: 'msg:mid.retry', status: 'RETRYING', retryCount: 1, nextRetryAt: new Date(Date.now() + 60_000) });
+    await expect(AutomationEngine.processDueEvents()).resolves.toEqual([]);
+    await makeDue(retrying.id);
+    await expect(AutomationEngine.processDueEvents()).resolves.toEqual([expect.objectContaining({ status: 'PROCESSED' })]);
+    expect(state.db.row('webhookEvent', { id: retrying.id })).toMatchObject({ status: 'PROCESSED', nextRetryAt: null, processingStartedAt: null });
+  });
+
+  it('retries a pre-send failure with bounded backoff, and never replays an ambiguous Meta send', async () => {
+    // Per-user dedup off so the ambiguous delivery attempt is not short-circuited
+    // by the "already delivered" guard before it can reach Meta.
+    seedWorkspace({ oneDeliveryPerUser: false });
+    seedGateConversation('fan-m7');
+
+    // 1) A database failure before any DM is sent is retryable.
+    const preSend = seedMessagingEvent('fan-m7', { eventId: 'msg:mid.pre' });
+    state.db.beforeOperation = (entry) => {
+      if (entry.model === 'automationContactState') throw new Error('connection pool timeout');
+    };
+    await expect(AutomationEngine.processMessagingEvent(preSend.id)).resolves.toMatchObject({ status: 'FAILED' });
+    let after = state.db.row('webhookEvent', { id: preSend.id })!;
+    expect(after).toMatchObject({ status: 'RETRYING', retryCount: 1, processedAt: null, processingStartedAt: null });
+    expect(after.nextRetryAt.getTime()).toBeGreaterThan(Date.now());
+    expect(directDms()).toHaveLength(0); // the failure happened before Meta was ever called
+
+    state.db.beforeOperation = null;
+    await makeDue(preSend.id);
+    await expect(AutomationEngine.processDueEvents()).resolves.toEqual([expect.objectContaining({ status: 'PROCESSED' })]);
+    expect(directDms()).toHaveLength(1);
+    expect(owner().dmsUsedThisMonth).toBe(1);
+
+    // 2) A network error after the DM was handed to Meta is ambiguous: replaying
+    //    it could double-send the user's DM, so the event stays terminal FAILED.
+    graph.handler = (call) => {
+      if (call.method === 'POST' && call.body?.recipient?.id) throw new Error('socket hang up after Meta may have accepted the request');
+      return acceptEverything(call);
+    };
+    const ambiguous = seedMessagingEvent('fan-m7', { eventId: 'msg:mid.amb' });
+    await expect(AutomationEngine.processMessagingEvent(ambiguous.id)).resolves.toMatchObject({ status: 'FAILED' });
+    after = state.db.row('webhookEvent', { id: ambiguous.id })!;
+    expect(after).toMatchObject({ status: 'FAILED', retryCount: 1, nextRetryAt: null });
+    expect(after.errorDetails).toContain('socket hang up');
+
+    // Exactly one send attempt was made for the ambiguous event (template POST
+    // + plain-text fallback POST, both outcome-unknown), and the cron must not
+    // pick the event up to replay it.
+    expect(directDms()).toHaveLength(3); // pre-send success + the two ambiguous POSTs
+    await expect(AutomationEngine.processDueEvents()).resolves.toEqual([]);
+    expect(directDms()).toHaveLength(3); // the ambiguous send was never retried
+    expect(owner().dmsUsedThisMonth).toBe(1); // the failed send released its quota reservation
+    expectNoTokenAnywhere();
+  });
+
+  it('stops scheduling messaging retries once the bounded attempt budget is spent', async () => {
+    seedWorkspace();
+    seedGateConversation('fan-m8');
+    const exhausted = seedMessagingEvent('fan-m8', { eventId: 'msg:mid.max', status: 'RETRYING', retryCount: 5, nextRetryAt: new Date(Date.now() - 1_000) });
+    state.db.beforeOperation = (entry) => {
+      if (entry.model === 'automationContactState') throw new Error('connection pool timeout');
+    };
+    await expect(AutomationEngine.processMessagingEvent(exhausted.id)).resolves.toMatchObject({ status: 'FAILED' });
+    expect(state.db.row('webhookEvent', { id: exhausted.id })).toMatchObject({
+      status: 'FAILED', retryCount: 6, nextRetryAt: null,
+    });
+  });
+});
+
+describe('follow-gate action validation', () => {
+  it('rejects copied button payloads that have no conversation state, then honors the same token once the gate DM was sent', async () => {
+    seedWorkspace({ followGateEnabled: true });
+    // Contact exists but no automationContactState row: a pasted button token must not run.
+    state.db.seed('contact', { instagramAccountId: IG, igsid: 'fan-g1', username: 'fan', lastAutomationId: 'flow', followGateStatus: 'FOLLOW_ASKED' });
+    const copied = seedMessagingEvent('fan-g1', {
+      eventId: 'msg:mid.copy', messagingPayload: 'CONFIRM_FOLLOW_flow', interactionType: 'POSTBACK',
+    });
+    await expect(AutomationEngine.processMessagingEvent(copied.id)).resolves.toMatchObject({
+      status: 'IGNORED', message: 'Unknown or copied button payload',
+    });
+    expect(directDms()).toHaveLength(0);
+    expect(state.db.row('webhookEvent', { id: copied.id })?.status).toBe('IGNORED');
+
+    // With a real access-welcome state, the same postback is honored. The live
+    // follow check says "not following", so the user gets the prompt back
+    // instead of the resource.
+    state.db.seed('automationContactState', { automationId: 'flow', instagramAccountId: IG, igsid: 'fan-g1', status: 'NEW' });
+    const genuine = seedMessagingEvent('fan-g1', {
+      eventId: 'msg:mid.genuine', messagingPayload: 'GET_ACCESS_flow', interactionType: 'POSTBACK',
+    });
+    await expect(AutomationEngine.processMessagingEvent(genuine.id)).resolves.toMatchObject({
+      status: 'PROCESSED', message: 'Follow not detected; follow prompt sent',
+    });
+    expect(directDms()).toHaveLength(1);
+    expect(state.db.row('automationContactState', { automationId: 'flow', igsid: 'fan-g1' })).toMatchObject({ status: 'NEW' });
+  });
+
+  it('delivers once for a genuine confirmation and blocks the second claim instead of re-DMing', async () => {
+    seedWorkspace({ followGateEnabled: true });
+    graph.handler = (call) => call.method === 'GET'
+      ? json({ username: 'fan', is_user_follow_business: true })
+      : acceptEverything(call);
+    seedGateConversation('fan-g2');
+    const confirm = seedMessagingEvent('fan-g2', {
+      eventId: 'msg:mid.confirm', messagingPayload: 'CONFIRM_FOLLOW_flow', interactionType: 'QUICK_REPLY',
+    });
+    await expect(AutomationEngine.processMessagingEvent(confirm.id)).resolves.toMatchObject({
+      status: 'PROCESSED', message: 'Live follow verified; resource delivered',
+    });
+    expect(state.db.row('automationContactState', { automationId: 'flow', igsid: 'fan-g2' })).toMatchObject({ status: 'DELIVERED' });
+    expect(state.db.row('contact', { instagramAccountId: IG, igsid: 'fan-g2' })).toMatchObject({ followGateStatus: 'DELIVERED' });
+
+    // A second legitimate message cannot re-deliver: the per-user delivery rule
+    // (and, behind it, the spent claim) blocks a duplicate resource DM.
+    const replay = seedMessagingEvent('fan-g2', { eventId: 'msg:mid.again', messagingPayload: 'CONFIRM_FOLLOW_flow', interactionType: 'QUICK_REPLY' });
+    await expect(AutomationEngine.processMessagingEvent(replay.id)).resolves.toMatchObject({
+      status: 'IGNORED', message: 'Resource already delivered to this user for this flow',
+    });
+    expect(directDms()).toHaveLength(1);
+    expect(owner().dmsUsedThisMonth).toBe(1);
+    expectNoTokenAnywhere();
+  });
+
+  it('ignores plain-text chatter and never reaches Meta for it', async () => {
+    seedWorkspace();
+    seedGateConversation('fan-g3');
+    const chatter = seedMessagingEvent('fan-g3', {
+      eventId: 'msg:mid.chatter', messagingPayload: 'hmm interesting, tell me more about your holiday photos!',
+      interactionType: 'TEXT',
+    });
+    await expect(AutomationEngine.processMessagingEvent(chatter.id)).resolves.toMatchObject({
+      status: 'IGNORED', message: 'Messaging event is not a follow-gate action',
+    });
+    expect(graph.calls).toEqual([]);
+  });
+});
+
+describe('comment payload retention', () => {
+  it('stores only the actionable comment fields, not the full webhook body', async () => {
+    seedWorkspace();
+    const payload = comment({ commentText: 'guide' });
+    const row = await AutomationEngine.ingestCommentEvent({ ...payload, rawPayload: { entry: [{ secretConversation: 'never-store-me' }] } });
+    expect(row.rawPayload).toEqual({ eventId: row.eventId, eventType: 'comments' });
+    expect(JSON.stringify(state.db.snapshot())).not.toContain('never-store-me');
+  });
+});
+
+describe('messaging payload retention and audit hygiene', () => {
+  it('stores only the actionable prefix, never the raw webhook body or secrets', async () => {
+    seedWorkspace();
+    const longText = 'y'.repeat(500);
+    const event = await AutomationEngine.ingestMessagingEvent({
+      instagramAccountId: IG, senderId: 'fan-p1', postbackPayload: longText, interactionType: 'TEXT',
+      providerEventId: 'mid.$long', rawPayload: { privateConversation: 'z'.repeat(400) },
+    });
+    expect(event.messagingPayload).toBe('y'.repeat(160));
+    expect(event.rawPayload).toEqual({ eventId: event.eventId });
+
+    await expect(AutomationEngine.processMessagingEvent(event.id)).resolves.toMatchObject({
+      status: 'IGNORED', message: 'Messaging event is not a follow-gate action',
+    });
+
+    const audit = state.db.rows('auditLog').at(-1)!;
+    expect(audit.action).toBe('MESSAGING_IGNORED');
+    expect(audit.details.payload).toBe('y'.repeat(160));
+    expect(JSON.stringify(audit.details)).not.toContain('z'.repeat(50));
+    expect(JSON.stringify(state.db.snapshot())).not.toContain('z'.repeat(50)); // the raw webhook body was never persisted
+    expectNoTokenAnywhere();
   });
 });
