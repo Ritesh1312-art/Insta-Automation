@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
 import { requireSessionUser } from '@/lib/auth';
+import { metaGraphApiVersion, metaGraphUrl } from '@/lib/meta-graph';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,12 +30,25 @@ function logSafeFailure(reason: string) {
   console.error('[meta:profile-picture] request failed', { reason });
 }
 
+/**
+ * Hosts Instagram/Meta actually serve profile pictures from. Only these may be
+ * requested (and only these may a response redirect to), so a hostile or stale
+ * `profile_picture_url` cannot turn this endpoint into a request forwarder.
+ */
+const ALLOWED_CDN_SUFFIXES = ['.cdninstagram.com', '.fbcdn.net', '.facebook.com', '.instagram.com'];
+
+function onCdnAllowlist(host: string): boolean {
+  const normalized = host.toLowerCase();
+  return ALLOWED_CDN_SUFFIXES.some((suffix) => normalized === suffix.slice(1) || normalized.endsWith(suffix));
+}
+
 function parseSafeCdnUrl(rawUrl: string): URL | null {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== 'https:') return null;
     if (parsed.username || parsed.password) return null;
     const host = parsed.hostname.toLowerCase();
+    if (!onCdnAllowlist(host)) return null;
     if (
       !host ||
       host === 'localhost' ||
@@ -151,8 +165,10 @@ export async function GET(_req?: NextRequest) {
       );
     }
 
-    const graphApiVersion = process.env.META_GRAPH_API_VERSION || 'v26.0';
-    if (!/^v\d+\.\d+$/.test(graphApiVersion)) {
+    let graphApiVersion: string;
+    try {
+      graphApiVersion = metaGraphApiVersion();
+    } catch {
       logSafeFailure('invalid_graph_version');
       return NextResponse.json(
         { error: 'Unable to load Instagram profile picture' },
@@ -163,7 +179,7 @@ export async function GET(_req?: NextRequest) {
     let graphResponse: Response;
     try {
       graphResponse = await fetch(
-        `https://graph.facebook.com/${graphApiVersion}/${encodeURIComponent(connection.instagramAccountId)}?fields=profile_picture_url`,
+        metaGraphUrl(graphApiVersion, `/${encodeURIComponent(connection.instagramAccountId)}?fields=profile_picture_url`),
         {
           headers: { Authorization: `Bearer ${accessToken}` },
           cache: 'no-store',
@@ -237,11 +253,17 @@ export async function GET(_req?: NextRequest) {
         .catch(() => undefined);
     }
 
+    const imageHeaders = { Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8' };
+
+    // Redirects are handled by hand: the Location target is checked against the
+    // CDN allowlist *before* it is requested, so no off-allowlist host is ever
+    // touched (Meta's CDN redirects between its own edges at most once).
     let imageResponse: Response;
     try {
       imageResponse = await fetch(safePictureUrl.toString(), {
-        headers: { Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8' },
+        headers: imageHeaders,
         cache: 'no-store',
+        redirect: 'manual',
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
     } catch {
@@ -250,6 +272,40 @@ export async function GET(_req?: NextRequest) {
         { error: 'Unable to load Instagram profile picture' },
         { status: 502, headers: NO_STORE_HEADERS },
       );
+    }
+
+    if (imageResponse.status >= 300 && imageResponse.status < 400) {
+      const location = imageResponse.headers.get('location');
+      const redirectTarget = location ? parseSafeCdnUrl(new URL(location, safePictureUrl).toString()) : null;
+      if (!redirectTarget) {
+        logSafeFailure('unsafe_redirect_url');
+        return NextResponse.json(
+          { error: 'Unable to load Instagram profile picture' },
+          { status: 502, headers: NO_STORE_HEADERS },
+        );
+      }
+      try {
+        imageResponse = await fetch(redirectTarget.toString(), {
+          headers: imageHeaders,
+          cache: 'no-store',
+          redirect: 'manual',
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        });
+      } catch {
+        logSafeFailure('cdn_request_failed');
+        return NextResponse.json(
+          { error: 'Unable to load Instagram profile picture' },
+          { status: 502, headers: NO_STORE_HEADERS },
+        );
+      }
+      // A second redirect is never followed.
+      if (imageResponse.status >= 300 && imageResponse.status < 400) {
+        logSafeFailure('unsafe_redirect_url');
+        return NextResponse.json(
+          { error: 'Unable to load Instagram profile picture' },
+          { status: 502, headers: NO_STORE_HEADERS },
+        );
+      }
     }
 
     if (imageResponse.url && !parseSafeCdnUrl(imageResponse.url)) {

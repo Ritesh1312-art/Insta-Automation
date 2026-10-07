@@ -21,6 +21,9 @@ prisma/*.db-journal
 .DS_Store
 *.pem
 
+# Test harness output
+/.test-logs/
+
 # Debug logs
 npm-debug.log*
 yarn-debug.log*

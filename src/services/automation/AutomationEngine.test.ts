@@ -22,6 +22,9 @@ const mocks = vi.hoisted(() => {
       sendAccessWelcome: vi.fn(),
       sendFollowAsk: vi.fn(),
       sendResource: vi.fn(),
+      // The engine asks the gate for a fresh live answer on every interaction,
+      // so the mock mirrors whatever the mocked Graph profile call returns.
+      resolveFollowGateStatus: vi.fn(),
     },
     messaging: {
       getUserProfile: vi.fn<(igsid: string, token: string) => Promise<{ username?: string; isUserFollowingBusiness?: boolean } | null>>(async () => null),
@@ -78,6 +81,12 @@ describe('AutomationEngine messaging security', () => {
     mocks.reserveDmQuota.mockResolvedValue({ ok: true, periodStart: new Date('2026-09-01'), usageAfter: 1 });
     mocks.releaseDmQuota.mockResolvedValue(undefined);
     mocks.follow.upsertContact.mockResolvedValue(contact);
+    mocks.follow.resolveFollowGateStatus.mockImplementation(async () => {
+      const profile = await mocks.messaging.getUserProfile('person', 'access-token');
+      if (!profile) return { following: false, status: 'FOLLOW_ASKED', unavailable: true };
+      const following = profile.isUserFollowingBusiness === true;
+      return { following, status: following ? 'UNLOCKED' : 'FOLLOW_ASKED', unavailable: false, username: profile.username };
+    });
     mocks.follow.sendAccessWelcome.mockResolvedValue({ success: true, responseId: 'welcome' });
     mocks.follow.sendFollowAsk.mockResolvedValue({ success: true, responseId: 'follow-prompt' });
     mocks.follow.sendResource.mockResolvedValue({ success: true, responseId: 'resource' });

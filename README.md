@@ -40,7 +40,9 @@ Copy `.env.example` to `.env` / Vercel project settings.
 | `META_REDIRECT_URI` | `https://YOUR_DOMAIN/api/auth/meta/callback` |
 | `UPI_ID` / `UPI_PAYEE_NAME` | Checkout payee. QR is auto-generated from these — no image upload |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional approval bot; env values override dashboard settings |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | Optional welcome, OTP, and payment-status emails |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | Optional welcome, OTP, and payment-status emails (all five or none) |
+| `META_GRAPH_BASE_URL` | Optional. Overrides `https://graph.facebook.com` — local development/tests only |
+| `TELEGRAM_API_BASE_URL` | Optional. Overrides `https://api.telegram.org` — local development/tests only |
 
 Set `ADMIN_LOGIN_IDENTIFIER` to the normalized lookup identifier of the already-existing database user whose role is `ADMIN`. It is server-only: do not use a `NEXT_PUBLIC_` prefix or put the production value in Git. On Vercel, configure it in both Production and Preview before testing `/admin/login`.
 
@@ -81,11 +83,55 @@ See `/policies`. Follow-gated delivery fails closed when Meta cannot return the 
 ## Local run
 
 ```bash
-cp .env.example .env
+cp .env.example .env      # fill the values, then:
+npm run env:check         # validates the contract without printing secrets
 npm ci
 npm run db:generate
-npm run db:deploy
+npm run db:deploy         # prisma migrate deploy
 npm run dev
+```
+
+### Local database
+
+`npm run db:deploy` talks to whatever `DATABASE_URL` points at. On a machine
+without PostgreSQL installed, the repository can provision a real one from the
+prebuilt `embedded-postgres` binaries:
+
+```bash
+npm run db:local                                   # start (initdb on first run) + create the database
+export DATABASE_URL="postgresql://insta:insta@127.0.0.1:55432/insta_local?schema=public"
+npm run db:deploy
+npm run db:local -- stop                            # stop it again
+```
+
+## Testing
+
+```bash
+npm test               # everything: unit + integration (provisions what it needs)
+npm run test:unit      # vitest only (integration suites skip without a harness)
+npm run test:integration   # the suites that need PostgreSQL + third-party stand-ins
+```
+
+`npm test` runs `scripts/run-tests.mjs`, which starts a real PostgreSQL
+(`embedded-postgres`), applies the migrations, starts the local stand-ins for
+Meta Graph, the Instagram CDN, the Telegram Bot API and SMTP, builds and starts
+`next start` on `127.0.0.1:3100`, and then runs vitest. Nothing is skipped: the
+integration suites only skip when that harness is absent.
+
+Integration suites read `TEST_DATABASE_URL` (default
+`postgresql://insta:insta@127.0.0.1:55432/insta_test?schema=public`). The
+database name must contain `test`, because the schema is truncated between
+tests. To point them at your own server:
+
+```bash
+TEST_DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/insta_test?schema=public" npm run test:integration
+```
+
+To print the end-to-end evidence for every third-party flow (HTTP responses and
+database rows) while the harness is up:
+
+```bash
+node scripts/evidence/live-evidence.mjs
 ```
 
 ## Release verification
@@ -96,18 +142,22 @@ Before every production release:
 npm ci
 npm run env:check
 npm run db:validate
-npm run check
-npm run test:coverage
+npm run lint && npm run typecheck
+npm test               # 349 tests, 0 skipped, real PostgreSQL
+npm run test:coverage  # optional: coverage thresholds
 npm audit --audit-level=low
 npm run build
 npm run cf:build       # Cloudflare target only
+
+# After deploying, with the real credentials in the environment:
+npm run verify:integrations
 ```
 
-The test suite exercises signed webhook parsing, OAuth/session separation, encrypted credentials, CSRF, ownership boundaries, comment matching, follow-gate button spoofing, DM endpoint fallbacks, quota reservation/release, payment locking/review, and database-backed rate limiting.
+The test suite exercises signed webhook parsing, OAuth/session separation, encrypted credentials, CSRF, ownership boundaries, comment matching, follow-gate button spoofing, live follow checks, DM endpoint fallbacks, quota reservation/release, payment locking/review, transactional mail, Telegram approvals, and database-backed rate limiting. The per-item evidence (commands + observed output) is in [VERIFICATION_LOG.md](./VERIFICATION_LOG.md); the credential-dependent steps are in [REAL_WORLD_LAUNCH.md](./REAL_WORLD_LAUNCH.md).
 
 ## Live certification boundary
 
-A successful build proves code/package readiness; it does **not** prove external services are correctly provisioned. Before taking payments or enabling automations, complete [PRODUCTION_CHECKLIST.md](./PRODUCTION_CHECKLIST.md) with the real production Postgres database, Meta professional account/app review, webhook delivery, UPI settlement account, and any Telegram/SMTP integrations. Never activate a paid plan until its UTR is visibly credited in the bank/UPI app.
+A successful build proves code/package readiness; it does **not** prove external services are correctly provisioned. Before taking payments or enabling automations, run `npm run verify:integrations` and complete [REAL_WORLD_LAUNCH.md](./REAL_WORLD_LAUNCH.md) (the one-command go-live checklist) plus [PRODUCTION_CHECKLIST.md](./PRODUCTION_CHECKLIST.md) with the real production Postgres database, Meta professional account/app review, webhook delivery, UPI settlement account, and any Telegram/SMTP integrations. Never activate a paid plan until its UTR is visibly credited in the bank/UPI app.
 
 ## Operations and privacy
 

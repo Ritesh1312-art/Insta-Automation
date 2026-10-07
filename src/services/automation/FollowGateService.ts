@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { releaseDmQuota, reserveDmQuota } from '@/lib/quota';
 import { InstagramMessagingService, type ApiResponse } from '@/services/meta/InstagramMessagingService';
+import { renderTemplate } from './template';
 
 export type GateStatus = 'NEW' | 'FOLLOW_ASKED' | 'CLAIMED' | 'UNLOCKED' | 'DELIVERED';
 
@@ -53,12 +54,6 @@ function genericCard(title: string, subtitle: string, buttons: Array<Record<stri
       },
     },
   };
-}
-
-function renderTemplate(template: string, username: string, resourceUrl?: string | null) {
-  return template
-    .replace(/\{\{username\}\}/g, username)
-    .replace(/\{\{resource_url\}\}/g, resourceUrl || '');
 }
 
 export class FollowGateService {
@@ -135,12 +130,20 @@ export class FollowGateService {
     username?: string | null;
     messageTemplate: string;
     resourceUrl?: string | null;
+    resourceName?: string | null;
+    igUsername?: string | null;
     resourceText?: string | null;
   }): Promise<ApiResponse> {
     const username = params.username || 'there';
-    const message = renderTemplate(params.messageTemplate || 'Here is your resource.', username, params.resourceUrl);
+    const templateVars = {
+      username,
+      resourceUrl: params.resourceUrl,
+      resourceName: params.resourceName,
+      igUsername: params.igUsername,
+    };
+    const message = renderTemplate(params.messageTemplate || 'Here is your resource.', templateVars);
     const resourceText = params.resourceText
-      ? renderTemplate(params.resourceText, username, params.resourceUrl)
+      ? renderTemplate(params.resourceText, templateVars)
       : '';
     const body = resourceText && resourceText !== message ? `${message}\n\n${resourceText}` : message;
     const buttons = params.resourceUrl
@@ -157,6 +160,26 @@ export class FollowGateService {
       template,
       fallback: body,
     });
+  }
+
+  /**
+   * Live follow-relationship check against the Instagram Graph API
+   * (`is_user_follow_business`). The result is a gate status, not an assertion
+   * about a stored flag: `UNLOCKED` means the account followed at this instant,
+   * `FOLLOW_ASKED` means it had not and must be prompted.
+   *
+   * `unavailable` is true when the Graph API could not be read (network error,
+   * non-200, missing field); callers then keep the current state rather than
+   * pretending the check passed.
+   */
+  public static async resolveFollowGateStatus(params: {
+    igsid: string;
+    accessToken: string;
+  }): Promise<{ following: boolean; status: GateStatus; unavailable: boolean; username?: string }> {
+    const profile = await InstagramMessagingService.getUserProfile(params.igsid, params.accessToken);
+    if (!profile) return { following: false, status: 'FOLLOW_ASKED', unavailable: true };
+    const following = profile.isUserFollowingBusiness === true;
+    return { following, status: following ? 'UNLOCKED' : 'FOLLOW_ASKED', unavailable: false, username: profile.username };
   }
 
   public static async upsertContact(params: {

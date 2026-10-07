@@ -3,7 +3,12 @@ import { prisma } from '@/lib/prisma';
 import { decryptToken } from '@/lib/encryption';
 import { isAuthError, requireAdmin } from '@/lib/require-admin';
 import { logAuthFailure } from '@/lib/auth-logging';
-import { MetaAuthService, META_INSTAGRAM_WEBHOOK_FIELDS, META_PAGE_WEBHOOK_FIELDS } from '@/services/meta/MetaAuthService';
+import {
+  MetaAuthService,
+  META_INSTAGRAM_WEBHOOK_FIELDS,
+  META_PAGE_WEBHOOK_FIELDS,
+  isMetaAuthFailure,
+} from '@/services/meta/MetaAuthService';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,14 +97,32 @@ export async function POST() {
           MetaAuthService.subscribeObject(conn.facebookPageId, META_PAGE_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),
           MetaAuthService.subscribeObject(conn.instagramAccountId, META_INSTAGRAM_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),
         ]);
-        const errors = attempts
-          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-          .map(() => 'Subscription failed');
+        // A rejected token is reported as such: the connection is marked
+        // TOKEN_EXPIRED so the dashboard asks for a fresh OAuth run instead of
+        // retrying a dead token forever. Anything else stays a plain failure.
+        const failedAttempts = attempts.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+        const requiresReauthorization = failedAttempts.some((result) => isMetaAuthFailure(result.reason));
+        const errors = failedAttempts.map(() => 'Subscription failed');
+        if (requiresReauthorization) {
+          await prisma.metaConnection.update({
+            where: { id: conn.id },
+            data: { connectionStatus: 'TOKEN_EXPIRED' },
+          }).catch(() => undefined);
+          await prisma.auditLog.create({
+            data: {
+              userId: conn.userId,
+              action: 'META_TOKEN_INVALIDATED',
+              details: { instagramUsername: conn.instagramUsername, reason: 'webhook_resubscribe_failed' },
+            },
+          }).catch(() => undefined);
+        }
         subscriptionResults.push({
           instagramUsername: conn.instagramUsername,
           success: errors.length === 0,
           pageSubscribed: attempts[0].status === 'fulfilled',
           instagramSubscribed: attempts[1].status === 'fulfilled',
+          requiresReauthorization,
+          connectionStatus: requiresReauthorization ? 'TOKEN_EXPIRED' : conn.connectionStatus,
           errors,
         });
       } catch {

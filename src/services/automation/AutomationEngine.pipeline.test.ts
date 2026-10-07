@@ -38,7 +38,9 @@ function acceptEverything(call: GraphCall) {
   return json({ error: { code: 100, message: `Unexpected Graph call ${call.method} ${call.path}` } }, 400);
 }
 
-const privateReplies = () => graph.calls.filter((call) => call.path === `/v21.0/${IG}/messages`);
+// Graph paths follow the configured version so this suite is environment-agnostic.
+const GRAPH_VERSION = process.env.META_GRAPH_API_VERSION || 'v21.0';
+const privateReplies = () => graph.calls.filter((call) => call.path === `/${GRAPH_VERSION}/${IG}/messages`);
 const publicReplies = () => graph.calls.filter((call) => call.path.endsWith('/replies'));
 const commentDms = () => graph.calls.filter((call) => call.body?.recipient?.comment_id);
 const directDms = () => graph.calls.filter((call) => call.method === 'POST' && call.body?.recipient?.id);
@@ -209,10 +211,10 @@ describe('reply processing', () => {
 
     expect(graph.calls).toEqual([
       {
-        method: 'POST', path: `/v21.0/${IG}/messages`, authorization: `Bearer ${ACCESS_TOKEN}`,
+        method: 'POST', path: `/${GRAPH_VERSION}/${IG}/messages`, authorization: `Bearer ${ACCESS_TOKEN}`,
         body: { recipient: { comment_id: payload.commentId }, message: { text: 'Hi fan_one, here it is: https://example.test/guide' } },
       },
-      { method: 'POST', path: `/v21.0/${payload.commentId}/replies`, authorization: `Bearer ${ACCESS_TOKEN}`, body: { message: 'Check your DMs!' } },
+      { method: 'POST', path: `/${GRAPH_VERSION}/${payload.commentId}/replies`, authorization: `Bearer ${ACCESS_TOKEN}`, body: { message: 'Check your DMs!' } },
     ]);
     expect(runs()).toEqual([expect.objectContaining({
       status: 'API_ACCEPTED', dmStatus: 'SENT', publicReplyStatus: 'SENT', dmResponseId: 'mid-1', publicReplyId: 'reply-2',
@@ -229,11 +231,11 @@ describe('reply processing', () => {
     expect(result).toMatchObject({ status: 'PROCESSED', message: 'Access welcome sent' });
 
     const [welcome, reply] = graph.calls;
-    expect(welcome).toMatchObject({ path: `/v21.0/${IG}/messages`, body: { recipient: { comment_id: payload.commentId } } });
+    expect(welcome).toMatchObject({ path: `/${GRAPH_VERSION}/${IG}/messages`, body: { recipient: { comment_id: payload.commentId } } });
     expect(welcome.body.message.attachment.payload.elements[0].buttons).toEqual([
       { type: 'postback', title: 'Send me the Access', payload: 'GET_ACCESS_flow' },
     ]);
-    expect(reply).toMatchObject({ path: `/v21.0/${payload.commentId}/replies` });
+    expect(reply).toMatchObject({ path: `/${GRAPH_VERSION}/${payload.commentId}/replies` });
     expect(state.db.row('automationContactState', { automationId: 'flow', igsid: payload.commenterId })).toMatchObject({ status: 'NEW' });
     expect(owner().dmsUsedThisMonth).toBe(1);
     expect(state.db.rawQueries.filter((query) => query.values[0] === 'quota:creator').every((query) => query.transactionId !== null)).toBe(true);
@@ -624,7 +626,10 @@ describe('follow-gate action validation', () => {
       status: 'PROCESSED', message: 'Follow not detected; follow prompt sent',
     });
     expect(directDms()).toHaveLength(1);
-    expect(state.db.row('automationContactState', { automationId: 'flow', igsid: 'fan-g1' })).toMatchObject({ status: 'NEW' });
+    // The live check's answer is persisted (FOLLOW_ASKED) and the prompt that
+    // followed it is counted, so the retry cap can be enforced later.
+    expect(state.db.row('automationContactState', { automationId: 'flow', igsid: 'fan-g1' }))
+      .toMatchObject({ status: 'FOLLOW_ASKED', followPromptCount: 1 });
   });
 
   it('delivers once for a genuine confirmation and blocks the second claim instead of re-DMing', async () => {

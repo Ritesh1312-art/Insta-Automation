@@ -118,7 +118,7 @@ const MODEL_CONFIG: Record<ModelName, ModelConfig> = {
     updatedAt: true,
   },
   automationContactState: {
-    defaults: () => ({ status: 'NEW', claimStartedAt: null, deliveredAt: null, lastCheckedAt: null }),
+    defaults: () => ({ status: 'NEW', claimStartedAt: null, deliveredAt: null, lastCheckedAt: null, followPromptCount: 0 }),
     unique: [['id'], ['automationId', 'igsid']],
     updatedAt: true,
   },

@@ -2,6 +2,10 @@
 /**
  * Create or reset the ADMIN account from a trusted command line.
  * Usage: npm run admin:create -- --email you@example.com --password 'Secure#1234'
+ *
+ * The work runs inside `main()`: `tsx` evaluates this file as a module, and a
+ * top-level `await` at module scope fails on older Node/tsx combinations with
+ * "Top-level await is not available in the configured target environment".
  */
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
@@ -18,51 +22,55 @@ function arg(name: string) {
   return index !== -1 && args[index + 1] ? args[index + 1] : null;
 }
 
-const email = arg('email');
-const password = arg('password');
-const reset = args.includes('--reset');
+async function main() {
+  const email = arg('email');
+  const password = arg('password');
+  const reset = args.includes('--reset');
 
-if (!email || !/^\S+@\S+\.\S+$/.test(email)) fail('Pass --email you@example.com');
-const validPassword = typeof password === 'string'
-  && password.length >= 10
-  && password.length <= 20
-  && /[A-Z]/.test(password)
-  && /[a-z]/.test(password)
-  && /[0-9]/.test(password)
-  && /[^A-Za-z0-9\s]/.test(password);
-if (!validPassword) fail('Password must be 10–20 characters with uppercase, lowercase, number, and special character');
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) fail('Pass --email you@example.com');
+  const validPassword = typeof password === 'string'
+    && password.length >= 10
+    && password.length <= 20
+    && /[A-Z]/.test(password)
+    && /[a-z]/.test(password)
+    && /[0-9]/.test(password)
+    && /[^A-Za-z0-9\s]/.test(password);
+  if (!validPassword) fail('Password must be 10–20 characters with uppercase, lowercase, number, and special character');
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) fail('DATABASE_URL is not set — export the production connection string first');
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) fail('DATABASE_URL is not set — export the production connection string first');
 
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
-const normalizedEmail = email.trim().toLowerCase();
+  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const normalizedEmail = email.trim().toLowerCase();
 
-try {
-  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing?.role === 'ADMIN' && !reset) {
-    fail('This admin already exists. Add --reset to change the password.');
+  try {
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing?.role === 'ADMIN' && !reset) {
+      fail('This admin already exists. Add --reset to change the password.');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.upsert({
+      where: { email: normalizedEmail },
+      create: {
+        email: normalizedEmail,
+        passwordHash,
+        role: 'ADMIN',
+        plan: 'FREE',
+        monthlyDmQuota: 30,
+        subscriptionStatus: 'ACTIVE',
+        quotaResetAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+      update: { passwordHash, role: 'ADMIN' },
+    });
+
+    console.log('Admin ready:', user.email, `(id ${user.id})`);
+    console.log('Sign in at /login with this email and password.');
+  } catch (error) {
+    fail(error instanceof Error ? error.message : 'Unable to create admin');
+  } finally {
+    await prisma.$disconnect();
   }
-
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.upsert({
-    where: { email: normalizedEmail },
-    create: {
-      email: normalizedEmail,
-      passwordHash,
-      role: 'ADMIN',
-      plan: 'FREE',
-      monthlyDmQuota: 30,
-      subscriptionStatus: 'ACTIVE',
-      quotaResetAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    },
-    update: { passwordHash, role: 'ADMIN' },
-  });
-
-  console.log('Admin ready:', user.email, `(id ${user.id})`);
-  console.log('Sign in at /login with this email and password.');
-} catch (error) {
-  fail(error instanceof Error ? error.message : 'Unable to create admin');
-} finally {
-  await prisma.$disconnect();
 }
+
+main().catch((error) => fail(error instanceof Error ? error.message : 'Unable to create admin'));

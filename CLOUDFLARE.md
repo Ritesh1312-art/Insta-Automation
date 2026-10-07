@@ -32,6 +32,29 @@ npm run cf:deploy
 
 Never use `prisma db push` in production; `db:deploy` applies the checked-in migration history.
 
+
+## Local verification of the built worker
+
+```bash
+npm run cf:build
+npx wrangler@latest dev --local --ip 127.0.0.1 --port 8787
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/login         # 200
+curl -s http://127.0.0.1:8787/api/health                                      # {"status":"ok","database":"reachable"}
+```
+
+`/login`, static assets and every route (including the CSRF proxy) work in local
+mode. `/api/health` needs database round-trips, so it only reports `ok` where
+`workerd` is allowed to generate Wasm — Prisma's client engine is a Wasm module.
+A sandbox whose `workerd` refuses Wasm code generation
+(`WebAssembly.Module(): Wasm code generation disallowed by embedder`, which
+reproduces with an empty 8-byte module) will answer
+`{"status":"degraded","database":"unreachable"}`; the same build answers `ok` on
+a real Worker. Verify the deployed worker with:
+
+```bash
+curl -s https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/api/health
+```
+
 ## 3. Variables — add TWICE
 
 Cloudflare has **Build** variables and **Runtime / Worker** secrets. Add the same keys to both.

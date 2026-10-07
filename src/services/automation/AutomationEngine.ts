@@ -6,6 +6,7 @@ import { InstagramMessagingService } from '@/services/meta/InstagramMessagingSer
 import { FollowGateService, isFollowRetryText, parseButtonPayload } from './FollowGateService';
 import { assertDmQuota, releaseDmQuota, reserveDmQuota } from '@/lib/quota';
 import { redactSecrets, safeErrorMessage } from '@/lib/safe-error';
+import { renderPublicReply, renderTemplate } from './template';
 
 export interface CommentEventPayload {
   instagramAccountId: string;
@@ -38,6 +39,14 @@ type CommentAttempt = {
 };
 
 const MAX_RETRIES = 5;
+
+/**
+ * How many times one user may be sent the "Follow to unlock" prompt for one
+ * flow before the automation stops nagging them. Without a cap a loop of
+ * "I've followed" messages would spend the owner's DM quota on someone who
+ * never follows.
+ */
+export const MAX_FOLLOW_PROMPTS = 3;
 
 function retryAt(retryCount: number) {
   return new Date(Date.now() + Math.min(60 * 60 * 1000, 30_000 * 2 ** retryCount));
@@ -245,9 +254,16 @@ export class AutomationEngine {
       if (!reservation.ok) {
         dm = { success: false as const, errorCategory: 'VALIDATION' as const, errorMessage: reservation.message };
       } else {
-        const text = (automation.dmMessageTemplate || automation.resource?.textContent || 'Here is your resource.')
-          .replace(/\{\{username\}\}/g, resolvedCommenterUsername || 'there')
-          .replace(/\{\{resource_url\}\}/g, automation.resource?.url || '');
+        const text = renderTemplate(
+          automation.dmMessageTemplate || automation.resource?.textContent || 'Here is your resource.',
+          {
+            username: resolvedCommenterUsername || 'there',
+            resourceUrl: automation.resource?.url,
+            resourceName: automation.resource?.name,
+            igUsername: connection.instagramUsername,
+            commentText: resolvedCommentText,
+          },
+        );
         dm = await InstagramMessagingService.sendPrivateReply({
           instagramAccountId: realIgAccountId,
           commentId: event.commentId,
@@ -267,15 +283,25 @@ export class AutomationEngine {
     // therefore never spam the same public comment with repeated replies.
     let publicReplyStatus = run.publicReplyStatus || 'SKIPPED';
     let publicReplyId = run.publicReplyId || undefined;
-    if (automation.publicReplyEnabled && automation.publicReplyTemplates.length > 0 && publicReplyStatus !== 'SENT') {
-      const reply = automation.publicReplyTemplates[Math.floor(Math.random() * automation.publicReplyTemplates.length)];
-      const publicReply = await InstagramMessagingService.sendPublicReply({
-        commentId: event.commentId,
-        messageText: reply,
-        accessToken,
+    if (automation.publicReplyEnabled && publicReplyStatus !== 'SENT') {
+      const renderedReply = renderPublicReply(automation.publicReplyTemplates, {
+        username: resolvedCommenterUsername || 'there',
+        resourceUrl: automation.resource?.url,
+        resourceName: automation.resource?.name,
+        igUsername: connection.instagramUsername,
+        commentText: resolvedCommentText,
       });
-      publicReplyStatus = publicReply.success ? 'SENT' : 'FAILED';
-      publicReplyId = publicReply.responseId;
+      // An automation with public replies on but no usable template simply
+      // skips the reply instead of posting an empty comment.
+      if (renderedReply) {
+        const publicReply = await InstagramMessagingService.sendPublicReply({
+          commentId: event.commentId,
+          messageText: renderedReply,
+          accessToken,
+        });
+        publicReplyStatus = publicReply.success ? 'SENT' : 'FAILED';
+        publicReplyId = publicReply.responseId;
+      }
     }
 
     await prisma.$transaction([
@@ -575,11 +601,45 @@ export class AutomationEngine {
         igsid: senderId,
         lastAutomationId: automation.id,
       });
-      const profile = await InstagramMessagingService.getUserProfile(senderId, accessToken);
-      const username = profile?.username || contact.username || 'there';
-      const followsNow = profile?.isUserFollowingBusiness === true;
+      // A fresh live check on every interaction: a follow from three months ago
+      // is not proof of a follow now, and neither is a stored flag.
+      const gate = await FollowGateService.resolveFollowGateStatus({ igsid: senderId, accessToken });
+      const username = gate.username || contact.username || 'there';
+      const followsNow = gate.following;
+      await prisma.auditLog.create({
+        data: {
+          userId: automation.userId,
+          action: 'FOLLOW_RELATIONSHIP_CHECK',
+          details: {
+            igsid: senderId,
+            automationId: automation.id,
+            following: followsNow,
+            unavailable: gate.unavailable,
+            source: isTextConfirm ? 'text' : 'button',
+          },
+        },
+      }).catch(() => undefined);
+      // Persist what the live check found before acting on it, so an operator
+      // can see UNLOCKED / FOLLOW_ASKED even if the delivery below never runs.
+      if (automation.followGateEnabled && (prisma as any).automationContactState) {
+        await prisma.automationContactState.update({
+          where: { automationId_igsid: { automationId: automation.id, igsid: senderId } },
+          data: { status: gate.status, lastCheckedAt: new Date() },
+        }).catch(() => undefined);
+      }
 
       const sendFollowPrompt = async (): Promise<Result> => {
+        const gateState = (prisma as any).automationContactState
+          ? await prisma.automationContactState.findUnique({
+              where: { automationId_igsid: { automationId: automation.id, igsid: senderId } },
+              select: { followPromptCount: true },
+            })
+          : null;
+        // Cap the nagging: after MAX_FOLLOW_PROMPTS asks the flow stops
+        // spending the owner's quota on someone who has not followed.
+        if (gateState && gateState.followPromptCount >= MAX_FOLLOW_PROMPTS) {
+          return finish({ status: 'IGNORED', message: `Follow prompt limit reached (${MAX_FOLLOW_PROMPTS})` });
+        }
         attempt.dmSendAttempted = true;
         const dm = await FollowGateService.sendFollowAsk({
           mode: 'direct',
@@ -592,6 +652,12 @@ export class AutomationEngine {
           userId: automation.userId,
         });
         if (!dm.success) return finish({ status: 'FAILED', message: dm.errorMessage || 'Follow prompt failed' });
+        if ((prisma as any).automationContactState) {
+          await prisma.automationContactState.update({
+            where: { automationId_igsid: { automationId: automation.id, igsid: senderId } },
+            data: { status: 'FOLLOW_ASKED', followPromptCount: { increment: 1 }, lastCheckedAt: new Date() },
+          }).catch(() => undefined);
+        }
         await FollowGateService.upsertContact({
           instagramAccountId: realInstagramAccountId,
           igsid: senderId,
@@ -619,6 +685,8 @@ export class AutomationEngine {
           username,
           messageTemplate: automation.dmMessageTemplate,
           resourceUrl: automation.resource?.url,
+          resourceName: automation.resource?.name,
+          igUsername,
           resourceText: automation.resource?.textContent,
         });
         if (!dm.success) {

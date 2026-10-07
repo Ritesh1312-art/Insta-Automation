@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { encryptToken } from '@/lib/encryption';
+import { metaGraphApiVersion, metaGraphBaseUrl } from '@/lib/meta-graph';
 
 const mocks = vi.hoisted(() => ({
   requireSessionUser: vi.fn(),
@@ -115,7 +116,7 @@ describe('GET /api/meta/profile-picture', () => {
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://graph.facebook.com/v21.0/ig-account-123?fields=profile_picture_url',
+      `${metaGraphBaseUrl()}/${metaGraphApiVersion()}/ig-account-123?fields=profile_picture_url`,
     );
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       headers: { Authorization: 'Bearer secret-page-access-token-xyz' },
