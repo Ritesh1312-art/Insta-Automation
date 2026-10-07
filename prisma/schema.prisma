@@ -232,6 +232,7 @@ model AutomationContactState {
   claimStartedAt     DateTime?
   deliveredAt        DateTime?
   lastCheckedAt      DateTime?
+  followPromptCount  Int            @default(0)
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
   automation         Automation   @relation(fields: [automationId], references: [id], onDelete: Cascade)
