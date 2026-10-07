@@ -1,4 +1,5 @@
 import { MetaGraphError } from '@/lib/meta-errors';
+import { isMetaGraphUrl, metaGraphApiVersion, metaGraphUrl } from '@/lib/meta-graph';
 
 export interface InstagramMediaItem {
   id: string;
@@ -37,7 +38,7 @@ export function resolveDisplayUrls(item: InstagramMediaItem): { mediaUrl: string
 
 export class InstagramMediaService {
   public static async fetchMedia(instagramAccountId: string, accessToken: string): Promise<InstagramMediaItem[]> {
-    const version = process.env.META_GRAPH_API_VERSION || 'v26.0';
+    const version = metaGraphApiVersion();
     if (!accessToken) throw new Error('Meta Graph API is not configured');
     const fields = [
       'id',
@@ -51,13 +52,16 @@ export class InstagramMediaService {
       'children{id,media_type,media_url,thumbnail_url}',
     ].join(',');
 
-    let nextUrl: string | null = `https://graph.facebook.com/${version}/${encodeURIComponent(instagramAccountId)}/media?fields=${encodeURIComponent(fields)}&limit=50`;
+    let nextUrl: string | null = metaGraphUrl(
+      version,
+      `/${encodeURIComponent(instagramAccountId)}/media?fields=${encodeURIComponent(fields)}&limit=50`,
+    );
     const collected = new Map<string, InstagramMediaItem>();
 
     // Four pages covers 200 recent posts while keeping dashboard sync bounded.
     for (let page = 0; nextUrl && page < 4; page += 1) {
       const url: URL = new URL(nextUrl);
-      if (url.protocol !== 'https:' || url.hostname !== 'graph.facebook.com') {
+      if (!isMetaGraphUrl(nextUrl)) {
         throw new Error('Meta returned an invalid pagination URL');
       }
       // Never trust or forward a token embedded in a paging URL; use the header.

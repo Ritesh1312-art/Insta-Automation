@@ -1,3 +1,5 @@
+import { metaGraphApiVersion, metaGraphUrl } from '@/lib/meta-graph';
+
 export const META_PAGE_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks'] as const;
 export const META_INSTAGRAM_WEBHOOK_FIELDS = ['comments', 'messages', 'messaging_postbacks'] as const;
 
@@ -23,6 +25,21 @@ export interface ConnectedInstagramAccount {
   webhookSubscriptionWarnings?: string[];
 }
 
+/**
+ * Subscription failures carry Meta's numeric error code so callers can tell an
+ * expired token (190) apart from a missing permission (10) or a transient flake.
+ */
+export class MetaSubscriptionError extends Error {
+  constructor(message: string, public readonly code: number | null, public readonly status: number | null) {
+    super(message);
+    this.name = 'MetaSubscriptionError';
+  }
+}
+
+export function isMetaAuthFailure(error: unknown): boolean {
+  return error instanceof MetaSubscriptionError && (error.code === 190 || error.code === 102 || error.status === 401);
+}
+
 async function graphJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { ...init, cache: 'no-store', signal: init?.signal || AbortSignal.timeout(12_000) });
   const data = await response.json();
@@ -31,13 +48,13 @@ async function graphJson(url: string, init?: RequestInit) {
 
 export class MetaAuthService {
   private static get config() {
-    const graphApiVersion = process.env.META_GRAPH_API_VERSION || 'v26.0';
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
-    if (!graphApiVersion || !/^v\d+\.\d+$/.test(graphApiVersion) || !appId || !appSecret) {
+    if (!appId || !appSecret) {
       throw new Error('Meta OAuth is not configured correctly');
     }
-    return { graphApiVersion, appId, appSecret };
+    // Throws when META_GRAPH_API_VERSION is present but malformed.
+    return { graphApiVersion: metaGraphApiVersion(), appId, appSecret };
   }
 
   public static getOAuthUrl(state: string, redirectUri: string): string {
@@ -60,11 +77,15 @@ export class MetaAuthService {
   ) {
     const params = new URLSearchParams({ subscribed_fields: fields.join(',') });
     const { response, data } = await graphJson(
-      `https://graph.facebook.com/${graphApiVersion}/${encodeURIComponent(objectId)}/subscribed_apps?${params}`,
+      metaGraphUrl(graphApiVersion, `/${encodeURIComponent(objectId)}/subscribed_apps?${params}`),
       { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!response.ok || data.success !== true) {
-      throw new Error(data.error?.message || `Unable to subscribe ${objectId} to Meta webhooks`);
+      throw new MetaSubscriptionError(
+        data.error?.message || `Unable to subscribe ${objectId} to Meta webhooks`,
+        typeof data.error?.code === 'number' ? data.error.code : null,
+        response.status,
+      );
     }
     return data;
   }
@@ -78,7 +99,7 @@ export class MetaAuthService {
       code,
     });
     const { response: tokenResponse, data: tokenData } = await graphJson(
-      `https://graph.facebook.com/${graphApiVersion}/oauth/access_token?${tokenParams}`,
+      metaGraphUrl(graphApiVersion, `/oauth/access_token?${tokenParams}`),
     );
     if (!tokenResponse.ok || !tokenData.access_token) {
       throw new Error(tokenData.error?.message || 'Meta token exchange failed');
@@ -91,7 +112,7 @@ export class MetaAuthService {
       fb_exchange_token: tokenData.access_token,
     });
     const { response: longLivedResponse, data: longLivedData } = await graphJson(
-      `https://graph.facebook.com/${graphApiVersion}/oauth/access_token?${longLivedParams}`,
+      metaGraphUrl(graphApiVersion, `/oauth/access_token?${longLivedParams}`),
     );
     const userToken = longLivedResponse.ok && longLivedData.access_token
       ? longLivedData.access_token
@@ -101,7 +122,7 @@ export class MetaAuthService {
       : tokenData.expires_in;
 
     const { response: userResponse, data: metaUser } = await graphJson(
-      `https://graph.facebook.com/${graphApiVersion}/me?fields=id`,
+      metaGraphUrl(graphApiVersion, '/me?fields=id'),
       { headers: { Authorization: `Bearer ${userToken}` } },
     );
     if (!userResponse.ok || !metaUser.id) {
@@ -110,8 +131,8 @@ export class MetaAuthService {
 
     const configuredPageId = process.env.META_FACEBOOK_PAGE_ID?.trim();
     const pageUrl = configuredPageId
-      ? `https://graph.facebook.com/${graphApiVersion}/${encodeURIComponent(configuredPageId)}?fields=id,instagram_business_account{id,username,profile_picture_url},access_token`
-      : `https://graph.facebook.com/${graphApiVersion}/me/accounts?fields=id,instagram_business_account{id,username,profile_picture_url},access_token`;
+      ? metaGraphUrl(graphApiVersion, `/${encodeURIComponent(configuredPageId)}?fields=id,instagram_business_account{id,username,profile_picture_url},access_token`)
+      : metaGraphUrl(graphApiVersion, '/me/accounts?fields=id,instagram_business_account{id,username,profile_picture_url},access_token');
     const { response: pagesResponse, data: pagesData } = await graphJson(pageUrl, {
       headers: { Authorization: `Bearer ${userToken}` },
     });

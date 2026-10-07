@@ -15,6 +15,31 @@ type DirectUpiPaymentRecord = {
   createdAt: Date;
 };
 
+export const DEFAULT_TELEGRAM_API_BASE_URL = 'https://api.telegram.org';
+
+/**
+ * Production always calls https://api.telegram.org. `TELEGRAM_API_BASE_URL`
+ * points the whole Bot API surface at a local fake in tests and local
+ * development; it is optional and unset by default.
+ */
+export function telegramApiBaseUrl(): string {
+  const configured = (process.env.TELEGRAM_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (!configured) return DEFAULT_TELEGRAM_API_BASE_URL;
+  let parsed: URL;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    throw new Error('TELEGRAM_API_BASE_URL must be an absolute http(s) URL');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('TELEGRAM_API_BASE_URL must use http or https');
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('TELEGRAM_API_BASE_URL must be a bare origin, without credentials, query or fragment');
+  }
+  return parsed.origin;
+}
+
 const WEBHOOK_PURPOSE = 'instadm:telegram-webhook:v1';
 const PAIRING_PURPOSE = 'instadm:telegram-pairing:v1';
 
@@ -141,7 +166,7 @@ async function telegramApi<T = Record<string, unknown>>(
   body: Record<string, unknown>,
 ): Promise<T> {
   if (!isValidTelegramBotToken(botToken)) throw new Error('Telegram bot token is missing or invalid');
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
+  const response = await fetch(`${telegramApiBaseUrl()}/bot${botToken}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

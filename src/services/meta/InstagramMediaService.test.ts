@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InstagramMediaService, normalizeMediaType, resolveDisplayUrls } from './InstagramMediaService';
 import { MetaGraphError } from '@/lib/meta-errors';
+import { metaGraphApiVersion, metaGraphBaseUrl } from '@/lib/meta-graph';
 
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -21,7 +22,7 @@ describe('InstagramMediaService', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({
         data: [{ id: 'one', media_type: 'IMAGE', timestamp: '2026-01-01' }],
-        paging: { next: 'https://graph.facebook.com/v21.0/ig/media?after=x&access_token=leak' },
+        paging: { next: `${metaGraphBaseUrl()}/${metaGraphApiVersion()}/ig/media?after=x&access_token=leak` },
       }))
       .mockResolvedValueOnce(response({
         data: [

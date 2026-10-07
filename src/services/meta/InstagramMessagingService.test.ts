@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InstagramMessagingService } from './InstagramMessagingService';
+import { metaGraphApiVersion, metaGraphBaseUrl } from '@/lib/meta-graph';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -21,7 +22,7 @@ describe('InstagramMessagingService', () => {
     })).resolves.toEqual({ success: true, responseId: 'message-1' });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://graph.facebook.com/v21.0/ig-account/messages',
+      `${metaGraphBaseUrl()}/${metaGraphApiVersion()}/ig-account/messages`,
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ recipient: { comment_id: 'comment-1' }, message: { text: 'Hello' } }),

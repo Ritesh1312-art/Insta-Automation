@@ -1,4 +1,5 @@
 import { redactSecrets } from '@/lib/safe-error';
+import { metaGraphApiVersion, metaGraphUrl } from '@/lib/meta-graph';
 
 export interface PrivateReplyPayload {
   instagramAccountId: string;
@@ -34,9 +35,7 @@ function withoutSecrets(result: ApiResponse, accessToken: string): ApiResponse {
 
 export class InstagramMessagingService {
   private static get version(): string {
-    const configured = process.env.META_GRAPH_API_VERSION || 'v26.0';
-    if (!/^v\d+\.\d+$/.test(configured)) throw new Error('META_GRAPH_API_VERSION must be a version such as v26.0');
-    return configured;
+    return metaGraphApiVersion();
   }
 
   private static async send(targetId: string, body: Record<string, unknown>, accessToken: string): Promise<ApiResponse> {
@@ -47,7 +46,7 @@ export class InstagramMessagingService {
     }
     try {
       const response = await fetch(
-        `https://graph.facebook.com/${this.version}/${encodeURIComponent(targetId)}/messages`,
+        metaGraphUrl(this.version, `/${encodeURIComponent(targetId)}/messages`),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
@@ -77,9 +76,15 @@ export class InstagramMessagingService {
   }
 
   public static async sendPublicReply(payload: PublicReplyPayload): Promise<ApiResponse> {
+    // Meta applies the same 1,000-byte cap to comment replies; reject locally
+    // so a long template is reported as a validation error instead of being
+    // sent and silently truncated upstream.
+    if (Buffer.byteLength(payload.messageText, 'utf8') > 1000) {
+      return { success: false, errorCategory: 'VALIDATION', errorMessage: 'Meta message exceeds the 1,000-byte UTF-8 limit' };
+    }
     try {
       const response = await fetch(
-        `https://graph.facebook.com/${this.version}/${encodeURIComponent(payload.commentId)}/replies`,
+        metaGraphUrl(this.version, `/${encodeURIComponent(payload.commentId)}/replies`),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${payload.accessToken}` },
@@ -107,7 +112,7 @@ export class InstagramMessagingService {
     try {
       const fields = 'username,name,is_user_follow_business';
       const response = await fetch(
-        `https://graph.facebook.com/${this.version}/${encodeURIComponent(igsid)}?fields=${encodeURIComponent(fields)}`,
+        metaGraphUrl(this.version, `/${encodeURIComponent(igsid)}?fields=${encodeURIComponent(fields)}`),
         { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(8_000) },
       );
       if (!response.ok) return null;
@@ -132,7 +137,7 @@ export class InstagramMessagingService {
     try {
       const fields = 'id,text,message,from{id,username},media{id}';
       const response = await fetch(
-        `https://graph.facebook.com/${this.version}/${encodeURIComponent(commentId)}?fields=${encodeURIComponent(fields)}`,
+        metaGraphUrl(this.version, `/${encodeURIComponent(commentId)}?fields=${encodeURIComponent(fields)}`),
         { headers: { Authorization: `Bearer ${accessToken}` }, cache: 'no-store', signal: AbortSignal.timeout(8_000) },
       );
       if (!response.ok) return null;
