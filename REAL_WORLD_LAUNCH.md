@@ -77,8 +77,11 @@ that hold a role on the app connect:
   pass App Review for **Advanced Access** on the scopes the app requests:
   `instagram_basic`, `instagram_manage_comments`, `instagram_manage_messages`,
   `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`,
-  `business_management`, `public_profile` (`META_OAUTH_SCOPES` in
-  `src/services/meta/MetaAuthService.ts`).
+  `pages_messaging`, `business_management`, `public_profile`
+  (`META_OAUTH_SCOPES` in `src/services/meta/MetaAuthService.ts`).
+  `pages_messaging` is what authorizes the private-reply DM: without it in the
+  Page token grant Meta answers `(#230) Requires pages_messaging permission to
+  manage the object` and no DM is ever delivered.
 - Either way, the connected Instagram account must be a **professional**
   (Business or Creator) account linked to a Facebook Page; personal accounts
   cannot use the comment-to-DM APIs.

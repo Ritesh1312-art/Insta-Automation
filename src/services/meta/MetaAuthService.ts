@@ -10,6 +10,13 @@ export const META_OAUTH_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_metadata',
+  // The Instagram messaging endpoint (`POST /{ig-user-id}/messages`, used for
+  // private replies to comments) is authorized by the Page token grant, and
+  // Meta refuses it with (#230) "Requires pages_messaging permission to manage
+  // the object" when this scope is missing — even though the Instagram-side
+  // `instagram_manage_messages` permission is granted. Without it every real
+  // comment-to-DM send fails.
+  'pages_messaging',
   'business_management',
   'public_profile',
 ] as const;

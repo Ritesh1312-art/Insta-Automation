@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Bot, HelpCircle, RefreshCw, Settings, ShieldAlert, Webhook } from 'lucide-react';
+import { Bot, HelpCircle, PlugZap, RefreshCw, Settings, ShieldAlert, Webhook } from 'lucide-react';
 import { requestStudioStatsRefresh } from '@/lib/studio-refresh';
 
 type TelegramStatus = {
@@ -93,6 +93,25 @@ export default function SettingsPage() {
     } finally { setTelegramBusy(false); }
   };
 
+  /**
+   * Starts a fresh Meta OAuth run. Needed after the app's permission list
+   * changes (for example when `pages_messaging` was added): the already-stored
+   * Page token keeps its old grant until the account is connected again.
+   */
+  const reconnectMeta = async () => {
+    setMetaBusy(true);
+    setMetaMessage('Opening Meta consent screen…');
+    try {
+      const response = await fetch('/api/auth/meta/url');
+      const data = await response.json();
+      if (!response.ok || !data.url) throw new Error(data.error || 'Unable to start Meta authorization');
+      window.location.href = data.url;
+    } catch (error) {
+      setMetaMessage(`❌ ${error instanceof Error ? error.message : 'Unable to start Meta authorization'}`);
+      setMetaBusy(false);
+    }
+  };
+
   const resubscribeMeta = async () => {
     setMetaBusy(true);
     setMetaMessage('Subscribing connected Pages…');
@@ -172,14 +191,15 @@ export default function SettingsPage() {
           <section className="space-y-4 rounded-2xl border border-fuchsia-500/30 bg-slate-950 p-6">
             <h2 className="flex items-center gap-2 text-lg font-bold text-white"><Webhook className="h-5 w-5 text-fuchsia-400" /> Meta webhook subscription</h2>
             <p className="text-xs text-slate-300">Explicitly re-subscribe all connected Facebook Pages using the verified Page fields: <code className="text-fuchsia-300">messages, messaging_postbacks, feed</code>. This action is admin-only and never runs from a diagnostic GET.</p>
-            <div className="flex flex-wrap items-center gap-3"><button disabled={metaBusy} onClick={resubscribeMeta} className="flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${metaBusy ? 'animate-spin' : ''}`} /> Re-subscribe Meta webhooks</button>{metaMessage && <span className="text-xs text-slate-300">{metaMessage}</span>}</div>
+            <p className="text-xs text-slate-300">If Meta granted new permissions to this app (for example <code className="text-fuchsia-300">pages_messaging</code>), press <strong className="text-fuchsia-200">Reconnect Instagram</strong> first: the stored Page token keeps its old permission grant until the account is authorized again.</p>
+            <div className="flex flex-wrap items-center gap-3"><button disabled={metaBusy} onClick={reconnectMeta} className="flex items-center gap-2 rounded-xl border border-fuchsia-500/40 px-4 py-2.5 text-xs font-bold text-fuchsia-200 disabled:opacity-50"><PlugZap className="h-4 w-4" /> Reconnect Instagram</button><button disabled={metaBusy} onClick={resubscribeMeta} className="flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${metaBusy ? 'animate-spin' : ''}`} /> Re-subscribe Meta webhooks</button>{metaMessage && <span className="text-xs text-slate-300">{metaMessage}</span>}</div>
           </section>
         </>
       )}
 
       <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950 p-6"><h2 className="text-lg font-bold text-white">🔐 Account & session</h2><p className="text-xs text-slate-400">Sign out of the current workspace session in this browser.</p><button onClick={logout} className="rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-semibold text-white">Log out</button></section>
 
-      <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950 p-6"><h2 className="flex items-center gap-2 text-lg font-bold text-white"><HelpCircle className="h-5 w-5 text-fuchsia-400" /> Meta Developer App guide</h2><div className="space-y-3 text-xs text-slate-300"><div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900 p-4"><h3 className="text-sm font-bold text-white">Webhook callback</h3><div className="space-y-1 rounded border border-slate-800 bg-slate-950 p-3 font-mono"><div>Callback: <span className="text-emerald-400">/api/webhooks/meta</span></div><div>Verify token: <span className="text-fuchsia-300">META_VERIFY_TOKEN</span></div><div>App dashboard fields: <span className="text-amber-300">comments, messages, messaging_postbacks</span></div></div></div><div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900 p-4"><h3 className="text-sm font-bold text-white">Required permissions</h3><div className="flex flex-wrap gap-2 font-mono text-[11px]">{['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_read_engagement', 'pages_show_list'].map((permission) => <span key={permission} className="rounded border border-slate-800 bg-slate-950 px-2 py-1 text-fuchsia-300">{permission}</span>)}</div></div></div></section>
+      <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950 p-6"><h2 className="flex items-center gap-2 text-lg font-bold text-white"><HelpCircle className="h-5 w-5 text-fuchsia-400" /> Meta Developer App guide</h2><div className="space-y-3 text-xs text-slate-300"><div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900 p-4"><h3 className="text-sm font-bold text-white">Webhook callback</h3><div className="space-y-1 rounded border border-slate-800 bg-slate-950 p-3 font-mono"><div>Callback: <span className="text-emerald-400">/api/webhooks/meta</span></div><div>Verify token: <span className="text-fuchsia-300">META_VERIFY_TOKEN</span></div><div>App dashboard fields: <span className="text-amber-300">comments, messages, messaging_postbacks</span></div></div></div><div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900 p-4"><h3 className="text-sm font-bold text-white">Required permissions</h3><div className="flex flex-wrap gap-2 font-mono text-[11px]">{['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages', 'pages_read_engagement', 'pages_show_list', 'pages_manage_metadata', 'pages_messaging'].map((permission) => <span key={permission} className="rounded border border-slate-800 bg-slate-950 px-2 py-1 text-fuchsia-300">{permission}</span>)}</div></div></div></section>
 
       <section className="space-y-4 rounded-2xl border border-rose-900/50 bg-rose-950/20 p-6"><h2 className="flex items-center gap-2 text-lg font-bold text-rose-300"><ShieldAlert className="h-5 w-5 text-rose-400" /> Emergency kill switch</h2><p className="text-xs text-rose-200">Immediately pauses all active automations.</p><div className="flex flex-wrap gap-3"><button onClick={pauseAll} className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-medium text-white">Pause all automations</button>{message && <p className="self-center text-xs text-rose-200">{message}</p>}</div></section>
     </div>

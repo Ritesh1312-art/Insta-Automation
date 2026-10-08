@@ -23,6 +23,9 @@ describe('MetaAuthService', () => {
     const scopes = url.searchParams.get('scope')?.split(',');
     expect(scopes).toEqual([...META_OAUTH_SCOPES]);
     expect(scopes).toContain('pages_manage_metadata');
+    // Regression guard: Meta answers (#230) "Requires pages_messaging permission
+    // to manage the object" on the private-reply DM without this scope.
+    expect(scopes).toContain('pages_messaging');
   });
 
   it('exchanges tokens, discovers the Instagram account, and subscribes both webhook objects', async () => {
