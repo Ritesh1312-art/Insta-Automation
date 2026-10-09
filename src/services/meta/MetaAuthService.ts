@@ -2,6 +2,7 @@ import { metaGraphApiVersion, metaGraphUrl } from '@/lib/meta-graph';
 
 export const META_PAGE_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks'] as const;
 export const META_INSTAGRAM_WEBHOOK_FIELDS = ['comments', 'messages', 'messaging_postbacks'] as const;
+export const META_PAGE_SUBSCRIPTION_FIELDS = ['feed', 'comments', 'messages', 'messaging_postbacks'] as const;
 
 export const META_OAUTH_SCOPES = [
   'instagram_basic',
@@ -152,8 +153,7 @@ export class MetaAuthService {
 
     const account = page.instagram_business_account;
     const subscriptionAttempts = await Promise.allSettled([
-      this.subscribeObject(page.id, META_PAGE_WEBHOOK_FIELDS, page.access_token, graphApiVersion),
-      this.subscribeObject(account.id, META_INSTAGRAM_WEBHOOK_FIELDS, page.access_token, graphApiVersion),
+      this.subscribeObject(page.id, META_PAGE_SUBSCRIPTION_FIELDS, page.access_token, graphApiVersion),
     ]);
     const webhookSubscriptionWarnings = subscriptionAttempts
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
