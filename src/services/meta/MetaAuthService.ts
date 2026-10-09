@@ -2,7 +2,8 @@ import { metaGraphApiVersion, metaGraphUrl } from '@/lib/meta-graph';
 
 export const META_PAGE_WEBHOOK_FIELDS = ['feed', 'messages', 'messaging_postbacks'] as const;
 export const META_INSTAGRAM_WEBHOOK_FIELDS = ['comments', 'messages', 'messaging_postbacks'] as const;
-export const META_PAGE_SUBSCRIPTION_FIELDS = ['feed', 'comments', 'messages', 'messaging_postbacks'] as const;
+export const META_PAGE_SUBSCRIPTION_FIELDS = ['feed', 'messages', 'messaging_postbacks'] as const;
+
 
 export const META_OAUTH_SCOPES = [
   'instagram_basic',
