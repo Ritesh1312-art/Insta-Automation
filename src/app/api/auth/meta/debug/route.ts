@@ -5,8 +5,7 @@ import { isAuthError, requireAdmin } from '@/lib/require-admin';
 import { logAuthFailure } from '@/lib/auth-logging';
 import {
   MetaAuthService,
-  META_INSTAGRAM_WEBHOOK_FIELDS,
-  META_PAGE_WEBHOOK_FIELDS,
+  META_PAGE_SUBSCRIPTION_FIELDS,
   isMetaAuthFailure,
 } from '@/services/meta/MetaAuthService';
 
@@ -94,8 +93,7 @@ export async function POST() {
       try {
         const pageAccessToken = conn.accessTokenEncrypted ? decryptToken(conn.accessTokenEncrypted) : '';
         const attempts = await Promise.allSettled([
-          MetaAuthService.subscribeObject(conn.facebookPageId, META_PAGE_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),
-          MetaAuthService.subscribeObject(conn.instagramAccountId, META_INSTAGRAM_WEBHOOK_FIELDS, pageAccessToken, graphApiVersion),
+          MetaAuthService.subscribeObject(conn.facebookPageId, META_PAGE_SUBSCRIPTION_FIELDS, pageAccessToken, graphApiVersion),
         ]);
         // A rejected token is reported as such: the connection is marked
         // TOKEN_EXPIRED so the dashboard asks for a fresh OAuth run instead of
@@ -120,7 +118,6 @@ export async function POST() {
           instagramUsername: conn.instagramUsername,
           success: errors.length === 0,
           pageSubscribed: attempts[0].status === 'fulfilled',
-          instagramSubscribed: attempts[1].status === 'fulfilled',
           requiresReauthorization,
           connectionStatus: requiresReauthorization ? 'TOKEN_EXPIRED' : conn.connectionStatus,
           errors,
@@ -137,8 +134,7 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       subscribedFields: {
-        page: [...META_PAGE_WEBHOOK_FIELDS],
-        instagram: [...META_INSTAGRAM_WEBHOOK_FIELDS],
+        page: [...META_PAGE_SUBSCRIPTION_FIELDS],
       },
       subscriptionResults,
     });

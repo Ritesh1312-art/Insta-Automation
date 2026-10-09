@@ -82,24 +82,29 @@ describeIntegration('A2 POST /api/auth/meta/debug (live re-subscribe)', () => {
     });
   }
 
-  it('re-subscribes page + instagram with the stored page token', async () => {
+  it('re-subscribes the linked Page with the stored page token', async () => {
     await seedAdmin();
     const session = await adminSession();
     await seedConnection();
 
-    const { status, body } = await session.json<{ success: boolean; subscriptionResults: any[] }>('/api/auth/meta/debug', { method: 'POST' });
+    const { status, body } = await session.json<{
+      success: boolean;
+      subscribedFields: { page: string[] };
+      subscriptionResults: any[];
+    }>('/api/auth/meta/debug', { method: 'POST' });
     expect(status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.subscriptionResults).toHaveLength(1);
-    expect(body.subscriptionResults[0]).toMatchObject({ success: true, pageSubscribed: true, instagramSubscribed: true });
+    expect(body.subscriptionResults[0]).toMatchObject({ success: true, pageSubscribed: true });
+    expect(body.subscribedFields).toEqual({ page: ['feed', 'comments', 'messages', 'messaging_postbacks'] });
 
     const calls = (await readGraphCalls()).filter((call) => call.path.endsWith('/subscribed_apps'));
-    expect(calls).toHaveLength(2);
-    for (const call of calls) expect(call.authorization).toBe(`Bearer ${PAGE_TOKEN}`);
-    expect(calls.find((call) => call.path === `/v26.0/${PAGE_ID}/subscribed_apps`)?.query.subscribed_fields)
-      .toBe('feed,messages,messaging_postbacks');
-    expect(calls.find((call) => call.path === `/v26.0/${IG_ACCOUNT_ID}/subscribed_apps`)?.query.subscribed_fields)
-      .toBe('comments,messages,messaging_postbacks');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      path: `/v26.0/${PAGE_ID}/subscribed_apps`,
+      authorization: `Bearer ${PAGE_TOKEN}`,
+      query: { subscribed_fields: 'feed,comments,messages,messaging_postbacks' },
+    });
   });
 
   it('flips the connection to TOKEN_EXPIRED and asks for re-authorization on Meta code 190', async () => {
@@ -114,7 +119,6 @@ describeIntegration('A2 POST /api/auth/meta/debug (live re-subscribe)', () => {
     expect(body.subscriptionResults[0]).toMatchObject({
       success: false,
       pageSubscribed: false,
-      instagramSubscribed: false,
       requiresReauthorization: true,
       connectionStatus: 'TOKEN_EXPIRED',
     });

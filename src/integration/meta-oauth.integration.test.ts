@@ -108,15 +108,12 @@ describeIntegration('A1 Meta OAuth callback (live mock Graph API)', () => {
 
     const calls = await readGraphCalls();
     const subscriptions = calls.filter((call) => call.path.endsWith('/subscribed_apps'));
-    expect(subscriptions.map((call) => call.path).sort()).toEqual([
-      `/v26.0/${IG_ACCOUNT_ID}/subscribed_apps`,
-      `/v26.0/${PAGE_ID}/subscribed_apps`,
-    ]);
-    for (const call of subscriptions) expect(call.authorization).toBe(`Bearer ${PAGE_TOKEN}`);
-    const instagramSubscription = subscriptions.find((call) => call.path.includes(IG_ACCOUNT_ID));
-    expect(instagramSubscription?.query.subscribed_fields).toBe('comments,messages,messaging_postbacks');
-    const pageSubscription = subscriptions.find((call) => call.path.includes(PAGE_ID));
-    expect(pageSubscription?.query.subscribed_fields).toBe('feed,messages,messaging_postbacks');
+    expect(subscriptions).toHaveLength(1);
+    expect(subscriptions[0]).toMatchObject({
+      path: `/v26.0/${PAGE_ID}/subscribed_apps`,
+      authorization: `Bearer ${PAGE_TOKEN}`,
+      query: { subscribed_fields: 'feed,comments,messages,messaging_postbacks' },
+    });
     expect(calls.some((call) => call.path === '/v26.0/oauth/access_token')).toBe(true);
     expect(calls.some((call) => call.path === '/v26.0/me/accounts')).toBe(true);
   });

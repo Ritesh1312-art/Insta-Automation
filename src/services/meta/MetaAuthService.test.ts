@@ -28,7 +28,7 @@ describe('MetaAuthService', () => {
     expect(scopes).toContain('pages_messaging');
   });
 
-  it('exchanges tokens, discovers the Instagram account, and subscribes both webhook objects', async () => {
+  it('exchanges tokens, discovers the Instagram account, and subscribes its linked Page', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ access_token: 'short', expires_in: 3600 }))
       .mockResolvedValueOnce(json({ access_token: 'long', expires_in: 5_000_000 }))
@@ -37,7 +37,6 @@ describe('MetaAuthService', () => {
         id: 'page-id', access_token: 'page-token',
         instagram_business_account: { id: 'ig-id', username: 'creator', profile_picture_url: 'https://cdn.example/p.jpg' },
       }] }))
-      .mockResolvedValueOnce(json({ success: true }))
       .mockResolvedValueOnce(json({ success: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -47,13 +46,16 @@ describe('MetaAuthService', () => {
       instagramUsername: 'creator', accessToken: 'page-token', expiresInSeconds: 5_000_000,
       webhookSubscriptionWarnings: [],
     });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(String(fetchMock.mock.calls[4][0])).toContain('/page-id/subscribed_apps');
-    expect(String(fetchMock.mock.calls[4][0])).toContain('feed%2Cmessages%2Cmessaging_postbacks');
-    expect(String(fetchMock.mock.calls[5][0])).toContain('/ig-id/subscribed_apps');
-    expect(String(fetchMock.mock.calls[5][0])).toContain('comments%2Cmessages%2Cmessaging_postbacks');
+    expect(String(fetchMock.mock.calls[4][0])).toContain('feed%2Ccomments%2Cmessages%2Cmessaging_postbacks');
+    expect(fetchMock.mock.calls[4][1]).toMatchObject({
+      method: 'POST',
+      headers: { Authorization: 'Bearer page-token' },
+    });
   });
 
-  it('keeps a valid connection when one webhook object is unavailable and reports a warning', async () => {
+  it('keeps a valid connection when the Page webhook subscription is unavailable and reports a warning', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce(json({ access_token: 'short' }))
@@ -62,12 +64,11 @@ describe('MetaAuthService', () => {
       .mockResolvedValueOnce(json({ data: [{
         id: 'page-id', access_token: 'page-token', instagram_business_account: { id: 'ig-id', username: 'creator' },
       }] }))
-      .mockResolvedValueOnce(json({ success: true }))
-      .mockResolvedValueOnce(json({ error: { message: 'Instagram subscription unavailable' } }, 400)));
+      .mockResolvedValueOnce(json({ error: { message: 'Page subscription unavailable' } }, 400)));
 
     const account = await MetaAuthService.handleOAuthCallback('code', 'https://app.example.com/callback');
     expect(account.accessToken).toBe('page-token');
-    expect(account.webhookSubscriptionWarnings).toEqual(['Instagram subscription unavailable']);
+    expect(account.webhookSubscriptionWarnings).toEqual(['Page subscription unavailable']);
   });
 
   it('rejects OAuth when no professional Instagram account is connected', async () => {
